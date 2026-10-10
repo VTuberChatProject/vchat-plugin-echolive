@@ -1,0 +1,5 @@
+# 固定支持 NanaUI 的 Rust 编译器。
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
