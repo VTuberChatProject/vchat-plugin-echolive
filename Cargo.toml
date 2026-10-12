@@ -1,0 +1,23 @@
+[package]
+name = "vchat-echolive-config-plugin"
+version = "1.0.0"
+edition = "2024"
+description = "VChat 内置 Echo-Live 配置注入插件"
+license = "GPL-3.0-or-later"
+
+[lib]
+path = "lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+prost.workspace = true
+serde_json.workspace = true
+vchat-plugin-api = { path = "../../Core/Interfaces" }
+
+[dev-dependencies]
+vchat-internal-plugin = { path = "../../Adapter/InternalPlugin" }
+tempfile.workspace = true
+
+[[test]]
+name = "dynamic_library"
+path = "dynamic_tests.rs"

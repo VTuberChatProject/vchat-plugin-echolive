@@ -1,0 +1,9 @@
+{
+  "id": "builtin.echolive-config",
+  "version": "1.0.0",
+  "platform": "__PLATFORM__",
+  "architecture": "__ARCHITECTURE__",
+  "abi_version": 1,
+  "protocol_version": 1,
+  "capabilities": []
+}
