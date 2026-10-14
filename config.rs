@@ -14,16 +14,9 @@ pub fn generate_config(source: &str) -> String {
 function InjectConfig() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsAddress = `${protocol}//${window.location.host}/ws`;
-    const preview = new URLSearchParams(window.location.search).get('preview') === '1';
     config.echolive.broadcast.enable = true;
     config.echolive.broadcast.websocket_enable = true;
-    config.echolive.broadcast.websocket_url = wsAddress + (preview ? '?preview=1' : '');
-    config.echolive.broadcast.channel = preview ? 'vchat:preview' : 'vchat:live';
-    config.echolive.broadcast.websocket_reconnect_limit = 1000;
-    config.echolive.messages_polling.enable = false;
-    config.echolive.sleep.enable = false;
-    config.advanced.broadcast.allow_send_duplicate_message = true;
-    config.echolive.filter.enable = false;
+    config.echolive.broadcast.websocket_url = wsAddress;
     config.editor.websocket.enable = true;
     config.editor.websocket.url = wsAddress;
     config.editor.websocket.auto_url = false;

@@ -49,13 +49,13 @@ fn manager(cache: &Path) -> InternalPluginManager {
     manager
 }
 
-/// 使用 Node vm 执行实际生成脚本，模拟浏览器 location 和 URLSearchParams。
-fn execute(script: &str, protocol: &str, host: &str, search: &str) -> Value {
+/// 使用 Node vm 执行实际生成脚本，模拟浏览器 location。
+fn execute(script: &str, protocol: &str, host: &str) -> Value {
     let harness = r#"
 const vm = require('node:vm');
 const fs = require('node:fs');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-const context = { window: { location: input.location }, URLSearchParams };
+const context = { window: { location: input.location } };
 vm.createContext(context);
 vm.runInContext(input.script + '\nglobalThis.result = config;', context);
 process.stdout.write(JSON.stringify(context.result));
@@ -68,7 +68,7 @@ process.stdout.write(JSON.stringify(context.result));
         .spawn()
         .expect("配置脚本测试需要 Node.js");
     let input = serde_json::to_vec(
-        &json!({"script":script,"location":{"protocol":protocol,"host":host,"search":search}}),
+        &json!({"script":script,"location":{"protocol":protocol,"host":host}}),
     )
     .unwrap();
     child.stdin.take().unwrap().write_all(&input).unwrap();
@@ -85,57 +85,27 @@ process.stdout.write(JSON.stringify(context.result));
 fn actual_library_generates_browser_config_and_stops_cleanly() {
     let cache = tempfile::tempdir().unwrap();
     let mut manager = manager(cache.path());
-    let source = "// 保留用户注释\nconst config = {custom: '用户配置', echolive:{broadcast:{},messages_polling:{enable:true},sleep:{enable:true},filter:{enable:true}},editor:{websocket:{}},advanced:{broadcast:{}}}";
+    let source = "// 保留用户注释\nconst config = {custom: '用户配置', echolive:{broadcast:{}},editor:{websocket:{}}}";
     let response = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
         .unwrap();
     assert_eq!(response["version"], 1);
     let script = response["script"].as_str().unwrap();
     assert!(script.starts_with(source), "原始配置完整保留");
-    for (protocol, host, search, expected, channel) in [
-        (
-            "http:",
-            "127.0.0.1:38600",
-            "",
-            "ws://127.0.0.1:38600/ws",
-            "vchat:live",
-        ),
-        (
-            "https:",
-            "localhost",
-            "",
-            "wss://localhost/ws",
-            "vchat:live",
-        ),
-        ("http:", "localhost", "", "ws://localhost/ws", "vchat:live"),
-        (
-            "https:",
-            "[::1]:4430",
-            "?preview=1",
-            "wss://[::1]:4430/ws?preview=1",
-            "vchat:preview",
-        ),
+    for (protocol, host, expected) in [
+        ("http:", "127.0.0.1:38600", "ws://127.0.0.1:38600/ws"),
+        ("https:", "localhost", "wss://localhost/ws"),
+        ("http:", "localhost", "ws://localhost/ws"),
+        ("https:", "[::1]:4430", "wss://[::1]:4430/ws"),
     ] {
-        let config = execute(script, protocol, host, search);
+        let config = execute(script, protocol, host);
         let broadcast = &config["echolive"]["broadcast"];
         assert_eq!(broadcast["enable"], true);
         assert_eq!(broadcast["websocket_enable"], true);
         assert_eq!(broadcast["websocket_url"], expected);
-        assert_eq!(broadcast["channel"], channel);
-        assert_eq!(broadcast["websocket_reconnect_limit"], 1000);
         assert_eq!(config["editor"]["websocket"]["enable"], true);
-        assert_eq!(
-            config["editor"]["websocket"]["url"],
-            expected.trim_end_matches("?preview=1")
-        );
+        assert_eq!(config["editor"]["websocket"]["url"], expected);
         assert_eq!(config["editor"]["websocket"]["auto_url"], false);
-        assert_eq!(config["echolive"]["messages_polling"]["enable"], false);
-        assert_eq!(config["echolive"]["sleep"]["enable"], false);
-        assert_eq!(config["echolive"]["filter"]["enable"], false);
-        assert_eq!(
-            config["advanced"]["broadcast"]["allow_send_duplicate_message"],
-            true
-        );
         assert_eq!(config["custom"], "用户配置");
     }
     manager
