@@ -29,8 +29,9 @@ fn instance() -> PluginContext {
         invoke: host_invoke,
     };
     let mut context = std::ptr::null_mut();
+    let config = br#"{"echo_root":".","media_root":"."}"#;
     assert_eq!(
-        unsafe { (API.create)(&host, std::ptr::null(), 0, &mut context) },
+        unsafe { (API.create)(&host, config.as_ptr(), config.len(), &mut context) },
         STATUS_OK
     );
     assert_eq!(unsafe { (API.start)(context) }, STATUS_OK);

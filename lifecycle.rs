@@ -4,13 +4,14 @@ use crate::{
     abi::{boundary, bytes, context},
 };
 use prost::Message;
+use serde_json::Value;
 use std::ffi::c_void;
 use vchat_plugin_api::{abi::*, proto::StateSnapshot};
 
 pub(crate) unsafe extern "C" fn create(
     host: *const HostApi,
-    _data: *const u8,
-    _len: usize,
+    data: *const u8,
+    len: usize,
     out: *mut PluginContext,
 ) -> i32 {
     boundary(|| {
@@ -25,7 +26,16 @@ pub(crate) unsafe extern "C" fn create(
             return STATUS_ERROR;
         }
         // SAFETY: `out` is supplied by the host and points to writable plugin context storage.
-        unsafe { *out = Box::into_raw(Box::new(Context { host })).cast() };
+        let Some(data) = (unsafe { bytes(data, len) }) else {
+            return STATUS_ERROR;
+        };
+        let Ok(config) = serde_json::from_slice::<Value>(data) else {
+            return STATUS_ERROR;
+        };
+        if !config["echo_root"].is_string() {
+            return STATUS_ERROR;
+        }
+        unsafe { *out = Box::into_raw(Box::new(Context { host, config })).cast() };
         STATUS_OK
     })
 }
@@ -35,9 +45,36 @@ pub(crate) unsafe extern "C" fn start(ptr: PluginContext) -> i32 {
         let Some(ctx) = (unsafe { context(ptr) }) else {
             return STATUS_ERROR;
         };
-        ctx.log("Echo-Live 配置插件启动");
-        STATUS_OK
+        ctx.log("Echo-Live 资源与接口插件启动");
+        let payload = serde_json::json!({
+            "version": 1,
+            "routes": [
+                {"kind":"http","method":"GET","path":"/Echo-Live/*","operation":"frontend.http"},
+                {"kind":"http","method":"GET","path":"/echolive-media/*","operation":"frontend.http"},
+                {"kind":"websocket","method":"GET","path":"/ws","operation":"frontend.ws"}
+            ]
+        });
+        let payload_json = serde_json::to_vec(&payload).unwrap();
+        let request = vchat_plugin_api::proto::HostRequest {
+            service: "web.route.register".into(),
+            payload_json,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        unsafe {
+            (ctx.host.invoke)(
+                ctx.host.context,
+                request.as_ptr(),
+                request.len(),
+                ignore_write,
+                std::ptr::null_mut(),
+            )
+        }
     })
+}
+
+unsafe extern "C" fn ignore_write(_: *mut c_void, _: *const u8, _: usize) -> i32 {
+    STATUS_OK
 }
 
 pub(crate) unsafe extern "C" fn quiesce(ptr: PluginContext) -> i32 {

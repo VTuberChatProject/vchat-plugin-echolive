@@ -43,7 +43,7 @@ fn manager(cache: &Path) -> InternalPluginManager {
         .load(
             serde_json::from_str::<PluginManifest>(MANIFEST_JSON).unwrap(),
             library(),
-            json!({}),
+            json!({"echo_root":".","media_root":"."}),
         )
         .unwrap();
     manager
@@ -67,10 +67,9 @@ process.stdout.write(JSON.stringify(context.result));
         .stderr(Stdio::piped())
         .spawn()
         .expect("配置脚本测试需要 Node.js");
-    let input = serde_json::to_vec(
-        &json!({"script":script,"location":{"protocol":protocol,"host":host}}),
-    )
-    .unwrap();
+    let input =
+        serde_json::to_vec(&json!({"script":script,"location":{"protocol":protocol,"host":host}}))
+            .unwrap();
     child.stdin.take().unwrap().write_all(&input).unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(
@@ -145,6 +144,42 @@ fn actual_library_rejects_protocol_errors() {
         manager
             .invoke_json(PLUGIN_ID, "unknown", &json!({}))
             .is_err()
+    );
+    manager.disable(PLUGIN_ID).unwrap();
+}
+
+#[test]
+fn route_registration_conflict_rolls_back_hot_update() {
+    let cache = tempfile::tempdir().unwrap();
+    let mut manager = InternalPluginManager::new(cache.path());
+    let reject_routes = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reject = reject_routes.clone();
+    manager.set_route_validator(std::sync::Arc::new(move |_, _| {
+        !reject.load(std::sync::atomic::Ordering::Acquire)
+    }));
+    manager
+        .load(
+            serde_json::from_str::<PluginManifest>(MANIFEST_JSON).unwrap(),
+            library(),
+            json!({"echo_root":".","media_root":"."}),
+        )
+        .unwrap();
+    reject_routes.store(true, std::sync::atomic::Ordering::Release);
+    let result = manager.reload(
+        PLUGIN_ID,
+        serde_json::from_str(MANIFEST_JSON).unwrap(),
+        library(),
+    );
+    assert!(result.is_err(), "候选插件路由冲突时必须拒绝提交");
+    let source = "const config = {echolive:{broadcast:{}},editor:{websocket:{}}}";
+    let response = manager
+        .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
+        .unwrap();
+    assert!(
+        response["script"]
+            .as_str()
+            .unwrap()
+            .contains("InjectConfig")
     );
     manager.disable(PLUGIN_ID).unwrap();
 }

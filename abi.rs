@@ -1,5 +1,5 @@
 //! 插件 C ABI 的请求边界、协议校验和响应复制。
-use crate::{Context, MAX_PAYLOAD, OPERATION, PROTOCOL_VERSION, generate_config};
+use crate::{Context, HTTP_OPERATION, MAX_PAYLOAD, OPERATION, PROTOCOL_VERSION, generate_config};
 use prost::Message;
 use std::{ffi::c_void, panic::AssertUnwindSafe};
 use vchat_plugin_api::{abi::*, proto};
@@ -48,7 +48,10 @@ pub(crate) unsafe extern "C" fn invoke(
             ctx.log("配置插件 Protobuf 请求无效");
             return STATUS_ERROR;
         };
-        if request.protocol_version != PROTOCOL_VERSION || request.operation != OPERATION {
+        if request.protocol_version != PROTOCOL_VERSION
+            || !(matches!(request.operation.as_str(), OPERATION | HTTP_OPERATION)
+                || request.operation.starts_with("frontend.ws."))
+        {
             return write_error(
                 ctx,
                 write,
@@ -74,6 +77,12 @@ pub(crate) unsafe extern "C" fn invoke(
                 "unsupported_version",
                 "配置插件请求版本不兼容",
             );
+        }
+        if request.operation.starts_with("frontend.ws.") {
+            return write_empty_response(write, out);
+        }
+        if request.operation == HTTP_OPERATION {
+            return write_http_response(ctx, write, out, &payload);
         }
         let Some(source) = payload["source"].as_str() else {
             return write_error(
@@ -104,6 +113,121 @@ pub(crate) unsafe extern "C" fn invoke(
     })
 }
 
+fn write_empty_response(write: WriteCallback, out: *mut c_void) -> i32 {
+    let encoded = proto::PluginResponse::default().encode_to_vec();
+    unsafe { write(out, encoded.as_ptr(), encoded.len()) }
+}
+
+fn write_http_response(
+    ctx: &Context,
+    write: WriteCallback,
+    out: *mut c_void,
+    payload: &serde_json::Value,
+) -> i32 {
+    if payload["version"].as_u64() != Some(1) || payload["method"].as_str() != Some("GET") {
+        return write_error(ctx, write, out, "invalid_request", "Echo-Live 资源请求无效");
+    }
+    let Some(path) = payload["path"].as_str() else {
+        return write_error(
+            ctx,
+            write,
+            out,
+            "invalid_path",
+            "Echo-Live 资源请求缺少路径",
+        );
+    };
+    let (resource_root, relative, plugin_media) =
+        if let Some(relative) = path.strip_prefix("/Echo-Live/") {
+            (
+                ctx.config["echo_root"].as_str().unwrap_or_default(),
+                relative,
+                false,
+            )
+        } else if let Some(relative) = path.strip_prefix("/echolive-media/") {
+            (
+                ctx.config["media_root"].as_str().unwrap_or_default(),
+                relative,
+                true,
+            )
+        } else {
+            return write_error(ctx, write, out, "not_found", "Echo-Live 插件未注册该资源");
+        };
+    if relative.is_empty()
+        || relative.split('/').any(|part| {
+            part.is_empty()
+                || part == "."
+                || part == ".."
+                || part.starts_with('.')
+                || part.contains(['\\', ':'])
+        })
+    {
+        return write_error(ctx, write, out, "not_found", "Echo-Live 资源路径无效");
+    }
+    let Ok(real_root) = std::fs::canonicalize(resource_root) else {
+        return write_error(ctx, write, out, "not_found", "Echo-Live 资源目录不存在");
+    };
+    let candidate = real_root.join(relative);
+    let Ok(real) = std::fs::canonicalize(&candidate) else {
+        return write_error(ctx, write, out, "not_found", "Echo-Live 资源不存在");
+    };
+    if !real.starts_with(&real_root) {
+        return write_error(ctx, write, out, "forbidden", "Echo-Live 资源路径越界");
+    }
+    let canonical = real
+        .strip_prefix(&real_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"));
+    if canonical.as_deref() != Some(relative) || !real.is_file() {
+        return write_error(ctx, write, out, "not_found", "Echo-Live 资源不存在");
+    }
+    let mut body = match std::fs::read(&real) {
+        Ok(body) => body,
+        Err(error) => {
+            ctx.log(&format!("Echo-Live 资源读取失败: {error}"));
+            return write_error(ctx, write, out, "read_failed", "Echo-Live 资源读取失败");
+        }
+    };
+    let mut content_type = mime_guess::from_path(&real)
+        .first_or_octet_stream()
+        .to_string();
+    let mut no_store = false;
+    if !plugin_media && relative == "config.js" {
+        let source = match String::from_utf8(body) {
+            Ok(source) => source,
+            Err(_) => {
+                return write_error(
+                    ctx,
+                    write,
+                    out,
+                    "invalid_encoding",
+                    "Echo-Live 配置编码无效",
+                );
+            }
+        };
+        body = generate_config(&source).into_bytes();
+        content_type = "text/javascript; charset=utf-8".into();
+        no_store = true;
+    }
+    let response = proto::PluginResponse {
+        status: 200,
+        content_type,
+        no_store,
+        body,
+        ..Default::default()
+    };
+    let encoded = response.encode_to_vec();
+    if encoded.len() > MAX_PAYLOAD {
+        return write_error(
+            ctx,
+            write,
+            out,
+            "response_too_large",
+            "Echo-Live 资源响应过大",
+        );
+    }
+    unsafe { write(out, encoded.as_ptr(), encoded.len()) }
+}
+
 fn write_error(
     ctx: &Context,
     write: WriteCallback,
@@ -112,7 +236,16 @@ fn write_error(
     message: &str,
 ) -> i32 {
     ctx.log(message);
+    let status = match code {
+        "forbidden" => 403,
+        "invalid_request" | "invalid_path" | "invalid_encoding" => 400,
+        "read_failed" | "response_too_large" => 500,
+        _ => 404,
+    };
     let response = proto::PluginResponse {
+        status,
+        content_type: "text/plain; charset=utf-8".into(),
+        body: message.as_bytes().to_vec(),
         error: Some(proto::PluginError {
             code: code.into(),
             message: message.into(),

@@ -11,6 +11,5 @@ fn main() {
             &env::var("CARGO_CFG_TARGET_ARCH").unwrap(),
         );
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    fs::write(output.join("echolive-config.internal.json"), manifest)
-        .expect("写入内置插件目标平台清单");
+    fs::write(output.join("echolive.internal.json"), manifest).expect("写入内置插件目标平台清单");
 }
