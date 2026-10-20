@@ -2,6 +2,7 @@
 mod abi;
 mod config;
 mod lifecycle;
+mod output;
 
 use abi::invoke;
 pub use config::generate_config;

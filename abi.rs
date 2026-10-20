@@ -136,6 +136,17 @@ fn write_http_response(
             "Echo-Live 资源请求缺少路径",
         );
     };
+    if path == crate::output::BRIDGE_PATH {
+        let response = proto::PluginResponse {
+            status: 200,
+            content_type: "text/javascript; charset=utf-8".into(),
+            no_store: true,
+            body: crate::output::BRIDGE.as_bytes().to_vec(),
+            ..Default::default()
+        }
+        .encode_to_vec();
+        return unsafe { write(out, response.as_ptr(), response.len()) };
+    }
     let (resource_root, relative, plugin_media) =
         if let Some(relative) = path.strip_prefix("/Echo-Live/") {
             (
@@ -206,6 +217,31 @@ fn write_http_response(
         };
         body = generate_config(&source).into_bytes();
         content_type = "text/javascript; charset=utf-8".into();
+        no_store = true;
+    }
+    if !plugin_media && relative == "live.html" {
+        let source = match String::from_utf8(body) {
+            Ok(source) => source,
+            Err(_) => {
+                return write_error(
+                    ctx,
+                    write,
+                    out,
+                    "invalid_encoding",
+                    "Echo-Live 页面编码无效",
+                );
+            }
+        };
+        let Some(html) = crate::output::inject_html(&source) else {
+            return write_error(
+                ctx,
+                write,
+                out,
+                "invalid_html",
+                "Echo-Live 页面缺少兼容脚本注入入口",
+            );
+        };
+        body = html.into_bytes();
         no_store = true;
     }
     let response = proto::PluginResponse {
