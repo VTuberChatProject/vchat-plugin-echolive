@@ -1,5 +1,5 @@
 //! 插件 C ABI 的请求边界、协议校验和响应复制。
-use crate::{Context, HTTP_OPERATION, MAX_PAYLOAD, OPERATION, PROTOCOL_VERSION, generate_config};
+use crate::{Context, HTTP_OPERATION, MAX_PAYLOAD, OPERATION, PROTOCOL_VERSION};
 use prost::Message;
 use std::{ffi::c_void, panic::AssertUnwindSafe};
 use vchat_plugin_api::{abi::*, proto};
@@ -49,8 +49,10 @@ pub(crate) unsafe extern "C" fn invoke(
             return STATUS_ERROR;
         };
         if request.protocol_version != PROTOCOL_VERSION
-            || !(matches!(request.operation.as_str(), OPERATION | HTTP_OPERATION)
-                || request.operation.starts_with("frontend.ws."))
+            || !(matches!(
+                request.operation.as_str(),
+                OPERATION | HTTP_OPERATION | "config.changed"
+            ) || request.operation.starts_with("frontend.ws."))
         {
             return write_error(
                 ctx,
@@ -69,6 +71,19 @@ pub(crate) unsafe extern "C" fn invoke(
                 "配置插件请求不是有效 JSON",
             );
         };
+        if request.operation == "config.changed" {
+            return match crate::management::change_config(ctx, payload) {
+                Ok(()) => {
+                    let response = proto::PluginResponse {
+                        payload_json: br#"{"version":1,"accepted":true}"#.to_vec(),
+                        ..Default::default()
+                    }
+                    .encode_to_vec();
+                    unsafe { write(out, response.as_ptr(), response.len()) }
+                }
+                Err(error) => write_error(ctx, write, out, "invalid_config", &error),
+            };
+        }
         if payload["version"].as_u64() != Some(1) {
             return write_error(
                 ctx,
@@ -93,7 +108,7 @@ pub(crate) unsafe extern "C" fn invoke(
                 "配置插件请求缺少 source 脚本",
             );
         };
-        let script = generate_config(source);
+        let script = crate::management::generate(ctx, source);
         let response = proto::PluginResponse {
             payload_json: serde_json::to_vec(&serde_json::json!({
                 "version": 1,
@@ -215,7 +230,7 @@ fn write_http_response(
                 );
             }
         };
-        body = generate_config(&source).into_bytes();
+        body = crate::management::generate(ctx, &source).into_bytes();
         content_type = "text/javascript; charset=utf-8".into();
         no_store = true;
     }
@@ -274,7 +289,7 @@ fn write_error(
     ctx.log(message);
     let status = match code {
         "forbidden" => 403,
-        "invalid_request" | "invalid_path" | "invalid_encoding" => 400,
+        "invalid_request" | "invalid_path" | "invalid_encoding" | "invalid_config" => 400,
         "read_failed" | "response_too_large" => 500,
         _ => 404,
     };

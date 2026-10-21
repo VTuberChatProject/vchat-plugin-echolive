@@ -119,3 +119,32 @@ fn stateless_snapshot_has_plugin_identity_and_round_trips() {
     assert_eq!(unsafe { (API.quiesce)(context) }, STATUS_OK);
     assert_eq!(unsafe { (API.destroy)(context) }, STATUS_OK);
 }
+
+/// 表单发布失败时业务配置与配置定义保持原值，允许用户保留草稿重试。
+#[test]
+fn rejected_ui_registration_keeps_previous_context() {
+    unsafe extern "C" fn reject(
+        _: HostContext,
+        _: *const u8,
+        _: usize,
+        _: WriteCallback,
+        _: *mut c_void,
+    ) -> i32 {
+        STATUS_ERROR
+    }
+    let ptr = instance();
+    let ctx = unsafe { abi::context(ptr).unwrap() };
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
+    ctx.config = serde_json::json!({"echo_root": root,"media_root":".","echolive_config":{}});
+    ctx.schema = schema::load_schema(&root).unwrap();
+    let previous = ctx.config.clone();
+    let previous_schema = ctx.schema.clone();
+    let mut candidate = previous.clone();
+    candidate["echolive_config"] = serde_json::json!({"echo.print_speed":48});
+    ctx.host.invoke = reject;
+    assert!(management::change_config(ctx, candidate).is_err());
+    assert_eq!(ctx.config, previous);
+    assert_eq!(ctx.schema, previous_schema);
+    assert_eq!(unsafe { (API.destroy)(ptr) }, STATUS_OK);
+}

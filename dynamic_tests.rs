@@ -199,3 +199,120 @@ fn actual_library_timeout_disables_follow_up_calls() {
         Err(PluginError::Timeout)
     ));
 }
+
+/// 真实资源定义穿过动态库 ABI，配置保存、拒绝和热更新共享同一有效值。
+#[test]
+fn native_settings_validate_update_and_survive_hot_reload() {
+    let cache = tempfile::tempdir().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
+    let source = std::fs::read_to_string(root.join("config.js")).unwrap();
+    let mut config = json!({"echo_root":root,"media_root":".","echolive_config":{}});
+    let mut manager = InternalPluginManager::new(cache.path());
+    manager
+        .load(
+            serde_json::from_str(MANIFEST_JSON).unwrap(),
+            library(),
+            config.clone(),
+        )
+        .unwrap();
+    let ui = manager.ui_contributions();
+    let field = &ui[PLUGIN_ID].fields[0];
+    assert_eq!(field.kind, "echolive_config");
+    let schema: Value = serde_json::from_str(&field.schema_json).unwrap();
+    assert!(schema.get("error").is_none(), "{schema}");
+    assert!(schema["fields"].as_array().unwrap().len() > 100);
+    assert!(
+        schema["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["path"] == "echolive.broadcast.websocket_url" && f["read_only"] == true)
+    );
+
+    config["echolive_config"] = json!({"global.theme":"vanilla","echo.print_speed":47});
+    manager.set_config(PLUGIN_ID, &config).unwrap();
+    assert_eq!(
+        manager
+            .invoke_json(PLUGIN_ID, "config.changed", &config)
+            .unwrap()["accepted"],
+        true
+    );
+    let script = manager
+        .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
+        .unwrap();
+    let effective = execute(
+        script["script"].as_str().unwrap(),
+        "http:",
+        "localhost:12345",
+    );
+    assert_eq!(effective["global"]["theme"], "vanilla");
+    assert_eq!(effective["echo"]["print_speed"], 47);
+    assert_eq!(
+        effective["echolive"]["broadcast"]["websocket_url"],
+        "ws://localhost:12345/ws"
+    );
+
+    let saved_ui = manager.ui_contributions();
+    for overrides in [
+        json!({"echo.print_speed":-1}),
+        json!({"editor.websocket.url":"ws://other"}),
+        json!({"unknown.key":true}),
+    ] {
+        let mut invalid = config.clone();
+        invalid["echolive_config"] = overrides;
+        assert!(
+            manager
+                .invoke_json(PLUGIN_ID, "config.changed", &invalid)
+                .is_err()
+        );
+        assert_eq!(manager.ui_contributions()[PLUGIN_ID], saved_ui[PLUGIN_ID]);
+    }
+    manager
+        .reload(
+            PLUGIN_ID,
+            serde_json::from_str(MANIFEST_JSON).unwrap(),
+            library(),
+        )
+        .unwrap();
+    let script = manager
+        .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
+        .unwrap();
+    assert_eq!(
+        execute(script["script"].as_str().unwrap(), "https:", "localhost")["echo"]["print_speed"],
+        47
+    );
+    manager.disable(PLUGIN_ID).unwrap();
+}
+
+/// 错误配置资源隔离在设置表单，原始脚本生成与连接注入继续可用。
+#[test]
+fn malformed_resources_disable_form_and_preserve_frontend_generation() {
+    let cache = tempfile::tempdir().unwrap();
+    let resources = tempfile::tempdir().unwrap();
+    std::fs::write(
+        resources.path().join("config.js"),
+        "const config = broken();",
+    )
+    .unwrap();
+    let mut manager = InternalPluginManager::new(cache.path());
+    manager
+        .load(
+            serde_json::from_str(MANIFEST_JSON).unwrap(),
+            library(),
+            json!({"echo_root":resources.path(),"media_root":"."}),
+        )
+        .unwrap();
+    let ui = manager.ui_contributions();
+    let schema: Value = serde_json::from_str(&ui[PLUGIN_ID].fields[0].schema_json).unwrap();
+    assert!(schema["error"].as_str().is_some());
+    let source = "const config = {echolive:{broadcast:{}},editor:{websocket:{}}}";
+    let response = manager
+        .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
+        .unwrap();
+    assert_eq!(
+        execute(response["script"].as_str().unwrap(), "http:", "localhost")["editor"]["websocket"]
+            ["url"],
+        "ws://localhost/ws"
+    );
+    manager.disable(PLUGIN_ID).unwrap();
+}

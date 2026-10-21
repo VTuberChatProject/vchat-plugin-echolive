@@ -5,5 +5,5 @@
   "architecture": "__ARCHITECTURE__",
   "abi_version": 1,
   "protocol_version": 1,
-  "capabilities": ["frontend", "web"]
+  "capabilities": ["frontend", "web", "ui"]
 }

@@ -35,7 +35,16 @@ pub(crate) unsafe extern "C" fn create(
         if !config["echo_root"].is_string() {
             return STATUS_ERROR;
         }
-        unsafe { *out = Box::into_raw(Box::new(Context { host, config })).cast() };
+        let schema = crate::management::read_schema(&config);
+        let ctx = Context {
+            host,
+            config,
+            schema,
+        };
+        if let Some(error) = ctx.schema["error"].as_str() {
+            ctx.log(error);
+        }
+        unsafe { *out = Box::into_raw(Box::new(ctx)).cast() };
         STATUS_OK
     })
 }
@@ -61,7 +70,7 @@ pub(crate) unsafe extern "C" fn start(ptr: PluginContext) -> i32 {
             ..Default::default()
         }
         .encode_to_vec();
-        unsafe {
+        let status = unsafe {
             (ctx.host.invoke)(
                 ctx.host.context,
                 request.as_ptr(),
@@ -69,7 +78,12 @@ pub(crate) unsafe extern "C" fn start(ptr: PluginContext) -> i32 {
                 ignore_write,
                 std::ptr::null_mut(),
             )
+        };
+        if status != STATUS_OK {
+            ctx.log("Echo-Live 路由注册失败");
+            return status;
         }
+        crate::management::register_ui(ctx, &ctx.config, &ctx.schema)
     })
 }
 

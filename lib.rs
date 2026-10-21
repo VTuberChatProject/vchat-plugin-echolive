@@ -3,6 +3,9 @@ mod abi;
 mod config;
 mod lifecycle;
 mod output;
+mod management;
+mod schema;
+mod validation;
 
 use abi::invoke;
 pub use config::generate_config;
@@ -19,6 +22,7 @@ const MAX_PAYLOAD: usize = 16 * 1024 * 1024;
 struct Context {
     host: HostApi,
     config: serde_json::Value,
+    schema: serde_json::Value,
 }
 
 static API: PluginApi = PluginApi {
@@ -41,3 +45,6 @@ pub extern "C" fn vchat_internal_plugin_get_api() -> *const PluginApi {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod schema_tests;
