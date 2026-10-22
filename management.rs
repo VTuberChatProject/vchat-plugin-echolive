@@ -25,6 +25,7 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
     let request = proto::HostRequest {
         service: "ui.register".into(),
         ui: Some(proto::UiContribution {
+            output_cards: crate::output_cards::cards(),
             fields: vec![proto::UiField {
                 id: "echolive_config".into(),
                 label: "EchoLive 配置".into(),

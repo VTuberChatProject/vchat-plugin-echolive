@@ -4,6 +4,7 @@ mod config;
 mod lifecycle;
 mod management;
 mod output;
+mod output_cards;
 mod schema;
 mod validation;
 

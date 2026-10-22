@@ -176,9 +176,14 @@ fn route_registration_conflict_rolls_back_hot_update() {
     manager
         .load(fixture::manifest(), library(), json!({}))
         .unwrap();
+    let original_cards = manager.ui_contributions()[PLUGIN_ID].output_cards.clone();
     reject_routes.store(true, std::sync::atomic::Ordering::Release);
     let result = manager.reload(PLUGIN_ID, fixture::manifest(), library());
     assert!(result.is_err(), "候选插件路由冲突时必须拒绝提交");
+    assert_eq!(
+        manager.ui_contributions()[PLUGIN_ID].output_cards,
+        original_cards
+    );
     let source = "const config = {echolive:{broadcast:{}},editor:{websocket:{}}}";
     let response = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
@@ -223,6 +228,9 @@ fn native_settings_validate_update_and_survive_hot_reload() {
         .load(fixture::manifest(), library(), config.clone())
         .unwrap();
     let ui = manager.ui_contributions();
+    assert_eq!(ui[PLUGIN_ID].output_cards.len(), 2);
+    assert_eq!(ui[PLUGIN_ID].output_cards[0].title, "Live");
+    assert_eq!(ui[PLUGIN_ID].output_cards[1].title, "History");
     let field = &ui[PLUGIN_ID].fields[0];
     assert_eq!(field.kind, "echolive_config");
     let schema: Value = serde_json::from_str(&field.schema_json).unwrap();
@@ -260,6 +268,7 @@ fn native_settings_validate_update_and_survive_hot_reload() {
     );
 
     let saved_ui = manager.ui_contributions();
+    assert_eq!(saved_ui[PLUGIN_ID].output_cards, ui[PLUGIN_ID].output_cards);
     for overrides in [
         json!({"echo.print_speed":-1}),
         json!({"editor.websocket.url":"ws://other"}),
@@ -277,6 +286,10 @@ fn native_settings_validate_update_and_survive_hot_reload() {
     manager
         .reload(PLUGIN_ID, fixture::manifest(), library())
         .unwrap();
+    assert_eq!(
+        manager.ui_contributions()[PLUGIN_ID].output_cards,
+        saved_ui[PLUGIN_ID].output_cards
+    );
     let script = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
         .unwrap();
