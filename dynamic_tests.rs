@@ -244,7 +244,11 @@ fn native_settings_validate_update_and_survive_hot_reload() {
             .any(|f| f["path"] == "echolive.broadcast.websocket_url" && f["read_only"] == true)
     );
 
-    config["echolive_config"] = json!({"global.theme":"vanilla","echo.print_speed":47});
+    config["echolive_config"] = json!({
+        "global.theme":"glass", "global.theme_variant":"vertical_blue", "echo.print_speed":47,
+        "echolive.print_audio.subtrack_volume":0.35, "echolive.print_audio.subtrack_rate":1.5,
+        "echolive.speech_synthesis.speech_subtrack":true,
+    });
     manager.set_config(PLUGIN_ID, &config).unwrap();
     assert_eq!(
         manager
@@ -260,8 +264,19 @@ fn native_settings_validate_update_and_survive_hot_reload() {
         "http:",
         "localhost:12345",
     );
-    assert_eq!(effective["global"]["theme"], "vanilla");
+    assert_eq!(effective["global"]["theme"], "glass");
+    assert_eq!(effective["global"]["theme_variant"], "vertical_blue");
     assert_eq!(effective["echo"]["print_speed"], 47);
+    assert_eq!(effective["data_version"], 17);
+    assert_eq!(
+        effective["echolive"]["print_audio"]["subtrack_volume"],
+        0.35
+    );
+    assert_eq!(effective["echolive"]["print_audio"]["subtrack_rate"], 1.5);
+    assert_eq!(
+        effective["echolive"]["speech_synthesis"]["speech_subtrack"],
+        true
+    );
     assert_eq!(
         effective["echolive"]["broadcast"]["websocket_url"],
         "ws://localhost:12345/ws"
@@ -293,9 +308,14 @@ fn native_settings_validate_update_and_survive_hot_reload() {
     let script = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
         .unwrap();
+    let reloaded = execute(script["script"].as_str().unwrap(), "https:", "localhost");
+    assert_eq!(reloaded["echo"]["print_speed"], 47);
+    assert_eq!(reloaded["global"]["theme_variant"], "vertical_blue");
+    assert_eq!(reloaded["echolive"]["print_audio"]["subtrack_volume"], 0.35);
+    assert_eq!(reloaded["echolive"]["print_audio"]["subtrack_rate"], 1.5);
     assert_eq!(
-        execute(script["script"].as_str().unwrap(), "https:", "localhost")["echo"]["print_speed"],
-        47
+        reloaded["echolive"]["speech_synthesis"]["speech_subtrack"],
+        true
     );
     manager.disable(PLUGIN_ID).unwrap();
 }

@@ -59,7 +59,7 @@ fn official_fields_preserve_types_defaults_conditions_and_resource_values() {
         "special.all_or_array_string"
     );
     assert_eq!(field(&schema, "echolive.print_audio.volume")["maximum"], 1);
-    assert_eq!(field(&schema, "echolive.print_audio.volume")["step"], 0.1);
+    assert_eq!(field(&schema, "echolive.print_audio.volume")["step"], 0.05);
     assert_eq!(
         field(&schema, "editor.form.output_before")["conditions"][0],
         json!({"name":"editor.form.ontput_before_enable","value":1})
@@ -78,6 +78,69 @@ fn official_fields_preserve_types_defaults_conditions_and_resource_values() {
         field(&schema, "editor.color_picker.contrast_background_color")["input_type"],
         "color"
     );
+}
+
+/// 1.9 多轨配置沿用官方类型、标签和依赖，并进入浏览器的最终有效配置。
+#[test]
+fn multitrack_settings_follow_official_schema_and_browser_overrides() {
+    let schema = load_schema(&asset_root()).unwrap();
+    for (path, kind, default, label, dependency) in [
+        (
+            "echolive.print_audio.subtrack_volume",
+            "number",
+            json!(0.15),
+            "子轨道音效音量",
+            "echolive.print_audio.enable",
+        ),
+        (
+            "echolive.print_audio.subtrack_rate",
+            "number",
+            json!(1),
+            "子轨道音效播放速度",
+            "echolive.print_audio.enable",
+        ),
+        (
+            "echolive.speech_synthesis.speech_subtrack",
+            "boolean",
+            json!(false),
+            "读出子轨道",
+            "echolive.speech_synthesis.enable",
+        ),
+    ] {
+        let setting = field(&schema, path);
+        assert_eq!(setting["kind"], kind);
+        assert_eq!(setting["default"], default);
+        assert_eq!(setting["value"], default);
+        assert_eq!(setting["label"], label);
+        assert_eq!(setting["read_only"], false);
+        assert_eq!(
+            setting["conditions"],
+            json!([{"name": dependency, "value": true}])
+        );
+    }
+    let volume = field(&schema, "echolive.print_audio.subtrack_volume");
+    assert_eq!(volume["minimum"], 0);
+    assert_eq!(volume["maximum"], 1);
+    assert_eq!(volume["step"], 0.05);
+    let rate = field(&schema, "echolive.print_audio.subtrack_rate");
+    assert_eq!(rate["minimum"], 0);
+    assert_eq!(rate["step"], 0.25);
+    let overrides = json!({
+        "echolive.print_audio.subtrack_volume": 0.35,
+        "echolive.print_audio.subtrack_rate": 1.5,
+        "echolive.speech_synthesis.speech_subtrack": true,
+    });
+    validate_overrides(&schema, &overrides).unwrap();
+    let source = std::fs::read_to_string(asset_root().join("config.js")).unwrap();
+    let result = execute(
+        &generate_config_with(&source, Some(&schema), &overrides),
+        "http:",
+        "localhost",
+    );
+    assert_eq!(result["config"]["data_version"], 17);
+    for (path, expected) in overrides.as_object().unwrap() {
+        assert_eq!(path_value(&result["config"], path), Some(expected));
+    }
 }
 
 #[test]
@@ -151,6 +214,9 @@ fn validation_enforces_special_types_boundaries_and_host_ownership() {
         json!({"echo.print_speed":4}),
         json!({"echolive.print_audio.volume":0}),
         json!({"echolive.print_audio.volume":1}),
+        json!({"echolive.print_audio.subtrack_volume":0}),
+        json!({"echolive.print_audio.subtrack_volume":1}),
+        json!({"echolive.print_audio.subtrack_rate":0}),
         json!({"editor.form.ontput_before_enable":1}),
         json!({"editor.color_picker.palette":"all"}),
         json!({"editor.color_picker.palette":["a","b"]}),
@@ -163,6 +229,10 @@ fn validation_enforces_special_types_boundaries_and_host_ownership() {
         json!({"echo.print_speed":3}),
         json!({"echo.print_speed":"30"}),
         json!({"echolive.print_audio.volume":1.1}),
+        json!({"echolive.print_audio.subtrack_volume":-0.1}),
+        json!({"echolive.print_audio.subtrack_volume":1.1}),
+        json!({"echolive.print_audio.subtrack_rate":-0.25}),
+        json!({"echolive.speech_synthesis.speech_subtrack":1}),
         json!({"editor.form.ontput_before_enable":true}),
         json!({"editor.form.ontput_before_enable":2}),
         json!({"editor.color_picker.palette":"other"}),

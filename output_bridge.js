@@ -46,10 +46,8 @@
         live.echo.messageList = [];
         live.echo.typewrite = 'none';
         live.echo.ruby = false;
-        // 中途打断富文本时同步清理官方渲染器的分组和注音上下文。
-        if (typeof groupIndex !== 'undefined') groupIndex = 0;
-        if (typeof inRuby !== 'undefined') inRuby = false;
-        if (typeof inTypewriteEnd !== 'undefined') inTypewriteEnd = false;
+        // 1.9 的渲染上下文按轨道保存，下次 next 会重新建立全部轨道。
+        if (typeof echoTrack !== 'undefined') echoTrack = {};
         if (typeof messageActions !== 'undefined') messageActions.printEnd = undefined;
         if (globalThis.speechSynthesis) globalThis.speechSynthesis.cancel();
         if (clear) {
@@ -96,11 +94,20 @@
         return send.call(this, data);
     };
 
+    // 最后结束的副轨道会触发主轨道 printEnd，共享批次上下文以关联完成回执。
+    const createSubTrack = Echo.prototype.createSubTrack;
+    Echo.prototype.createSubTrack = function(...args) {
+        const track = createSubTrack.apply(this, args);
+        const value = echoes.get(this);
+        if (track && value) echoes.set(track, value);
+        return track;
+    };
+
     // 只有 next/print 的同步调用链能发出当前批次回执，迟到事件保持隔离。
     for (const method of ['next', 'print']) {
         const original = Echo.prototype[method];
         Echo.prototype[method] = function(...args) {
-            const value = echoes.get(method === 'print' ? (args[0] || this) : this);
+            const value = echoes.get(this);
             if (!value) return original.apply(this, args);
             const previous = value.event;
             value.event = copy(value.active);

@@ -5,7 +5,7 @@
   "name": "Echo-Live 网页输出",
   "author": "AuraElicase",
   "description": "提供 Echo-Live 网页输出、配置管理与打印回执。",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "platform": "__PLATFORM__",
   "architecture": "__ARCHITECTURE__",
   "abi_version": 1,
