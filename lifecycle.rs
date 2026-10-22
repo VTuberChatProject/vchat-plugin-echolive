@@ -32,12 +32,20 @@ pub(crate) unsafe extern "C" fn create(
         let Ok(config) = serde_json::from_slice::<Value>(data) else {
             return STATUS_ERROR;
         };
-        if !config["echo_root"].is_string() {
+        if !config.is_object() {
             return STATUS_ERROR;
         }
-        let schema = crate::management::read_schema(&config);
+        let paths = match unsafe { vchat_plugin_api::runtime::runtime_paths(&host) } {
+            Ok(paths) => paths,
+            Err(error) => {
+                eprintln!("Echo-Live 初始化失败: {error}");
+                return STATUS_ERROR;
+            }
+        };
+        let schema = crate::management::read_schema(&paths.resources_root, &config);
         let ctx = Context {
             host,
+            resources: paths.resources_root,
             config,
             schema,
         };

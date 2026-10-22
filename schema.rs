@@ -7,6 +7,7 @@ pub(crate) fn managed_value(path: &str) -> Option<Value> {
     match path {
         "echolive.broadcast.enable"
         | "echolive.broadcast.websocket_enable"
+        | "advanced.broadcast.allow_send_duplicate_message"
         | "editor.websocket.enable" => Some(json!(true)),
         "editor.websocket.auto_url" => Some(json!(false)),
         "echolive.broadcast.websocket_url" | "editor.websocket.url" => {

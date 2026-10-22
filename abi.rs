@@ -164,17 +164,9 @@ fn write_http_response(
     }
     let (resource_root, relative, plugin_media) =
         if let Some(relative) = path.strip_prefix("/Echo-Live/") {
-            (
-                ctx.config["echo_root"].as_str().unwrap_or_default(),
-                relative,
-                false,
-            )
+            (ctx.resources.join("Echo-Live"), relative, false)
         } else if let Some(relative) = path.strip_prefix("/echolive-media/") {
-            (
-                ctx.config["media_root"].as_str().unwrap_or_default(),
-                relative,
-                true,
-            )
+            (ctx.resources.join("media"), relative, true)
         } else {
             return write_error(ctx, write, out, "not_found", "Echo-Live 插件未注册该资源");
         };

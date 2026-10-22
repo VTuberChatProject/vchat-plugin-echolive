@@ -58,12 +58,15 @@ pub(crate) fn generate_config_with(
     for (const [path, value] of Object.entries(overrides)) set(path, value);
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsAddress = `${protocol}//${window.location.host}/ws`;
+    const preview = (window.location.search || '').slice(1).split('&').includes('preview=1');
     set('echolive.broadcast.enable', true);
     set('echolive.broadcast.websocket_enable', true);
-    set('echolive.broadcast.websocket_url', wsAddress);
+    set('echolive.broadcast.websocket_url', wsAddress + (preview ? '?preview=1' : ''));
     set('editor.websocket.enable', true);
     set('editor.websocket.url', wsAddress);
     set('editor.websocket.auto_url', false);
+    // 宿主队列将相同正文视为独立投递，每次都需要真实打印及完成回执。
+    set('advanced.broadcast.allow_send_duplicate_message', true);
 }
 InjectConfig();
 "#);

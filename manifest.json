@@ -1,4 +1,6 @@
 {
+  "package_version": 1,
+  "entry": "bin/__LIB_PREFIX__vchat_echolive_config_plugin.__LIB_EXTENSION__",
   "id": "builtin.echolive",
   "version": "1.0.0",
   "platform": "__PLATFORM__",

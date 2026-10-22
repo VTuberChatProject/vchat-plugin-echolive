@@ -6,9 +6,8 @@ use std::{ffi::c_void, path::Path};
 use vchat_plugin_api::{abi::*, proto};
 
 /// 解析失败作为表单错误展示，保持原有资源服务可用。
-pub(crate) fn read_schema(config: &Value) -> Value {
-    let root = Path::new(config["echo_root"].as_str().unwrap_or_default());
-    let result = crate::schema::load_schema(root).and_then(|schema| {
+pub(crate) fn read_schema(resources: &Path, config: &Value) -> Value {
+    let result = crate::schema::load_schema(&resources.join("Echo-Live")).and_then(|schema| {
         if let Some(values) = config.get("echolive_config") {
             crate::validation::validate_overrides(&schema, values)?;
         }
@@ -56,17 +55,12 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
 }
 
 /// 全量校验与 UI 注册成功后再替换上下文，失败保留上次有效状态。
-pub(crate) fn change_config(ctx: &mut Context, mut candidate: Value) -> Result<(), String> {
+pub(crate) fn change_config(ctx: &mut Context, candidate: Value) -> Result<(), String> {
     if !candidate.is_object() {
         return Err("EchoLive 配置必须是对象".into());
     }
-    // 资源路径由启动环境决定，插件表单只更新配置覆盖值。
-    for key in ["echo_root", "media_root"] {
-        candidate[key] = ctx.config[key].clone();
-    }
-    let schema = crate::schema::load_schema(Path::new(
-        candidate["echo_root"].as_str().unwrap_or_default(),
-    ))?;
+    // 配置覆盖与本代次只读资源分别持有，整包更新时由新实例替换资源。
+    let schema = crate::schema::load_schema(&ctx.resources.join("Echo-Live"))?;
     let empty = json!({});
     crate::validation::validate_overrides(
         &schema,

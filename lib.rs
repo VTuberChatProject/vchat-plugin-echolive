@@ -2,8 +2,8 @@
 mod abi;
 mod config;
 mod lifecycle;
-mod output;
 mod management;
+mod output;
 mod schema;
 mod validation;
 
@@ -16,11 +16,11 @@ pub const PLUGIN_ID: &str = "builtin.echolive";
 pub const OPERATION: &str = "frontend.config.generate";
 pub const HTTP_OPERATION: &str = "frontend.http";
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const MANIFEST_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/echolive.internal.json"));
 const MAX_PAYLOAD: usize = 16 * 1024 * 1024;
 
 struct Context {
     host: HostApi,
+    resources: std::path::PathBuf,
     config: serde_json::Value,
     schema: serde_json::Value,
 }

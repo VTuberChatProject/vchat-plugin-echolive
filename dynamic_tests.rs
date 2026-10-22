@@ -7,11 +7,13 @@ use std::{
     sync::OnceLock,
     time::Duration,
 };
-use vchat_echolive_config_plugin::{MANIFEST_JSON, OPERATION, PLUGIN_ID};
-use vchat_internal_plugin::{InternalPluginManager, PluginError, PluginManifest};
+use vchat_echolive_config_plugin::{OPERATION, PLUGIN_ID};
+#[path = "package_fixture.rs"]
+mod fixture;
+use vchat_internal_plugin::{InternalPluginManager, PluginError};
 
 /// 由 Cargo 单独生成真实 cdylib，允许 CI 使用预构建动态库。
-fn library() -> &'static Path {
+fn raw_library() -> &'static Path {
     static LIBRARY: OnceLock<PathBuf> = OnceLock::new();
     LIBRARY
         .get_or_init(|| {
@@ -37,20 +39,27 @@ fn library() -> &'static Path {
         .as_path()
 }
 
+fn library() -> &'static Path {
+    static PACKAGE: OnceLock<PathBuf> = OnceLock::new();
+    PACKAGE
+        .get_or_init(|| fixture::package(raw_library(), None))
+        .as_path()
+}
+
 fn manager(cache: &Path) -> InternalPluginManager {
-    let mut manager = InternalPluginManager::new(cache);
+    let manager = fixture::manager(cache);
     manager
-        .load(
-            serde_json::from_str::<PluginManifest>(MANIFEST_JSON).unwrap(),
-            library(),
-            json!({"echo_root":".","media_root":"."}),
-        )
+        .load(fixture::manifest(), library(), json!({}))
         .unwrap();
     manager
 }
 
 /// 使用 Node vm 执行实际生成脚本，模拟浏览器 location。
 fn execute(script: &str, protocol: &str, host: &str) -> Value {
+    execute_location(script, protocol, host, "")
+}
+
+fn execute_location(script: &str, protocol: &str, host: &str, search: &str) -> Value {
     let harness = r#"
 const vm = require('node:vm');
 const fs = require('node:fs');
@@ -67,9 +76,10 @@ process.stdout.write(JSON.stringify(context.result));
         .stderr(Stdio::piped())
         .spawn()
         .expect("配置脚本测试需要 Node.js");
-    let input =
-        serde_json::to_vec(&json!({"script":script,"location":{"protocol":protocol,"host":host}}))
-            .unwrap();
+    let input = serde_json::to_vec(
+        &json!({"script":script,"location":{"protocol":protocol,"host":host,"search":search}}),
+    )
+    .unwrap();
     child.stdin.take().unwrap().write_all(&input).unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(
@@ -83,7 +93,7 @@ process.stdout.write(JSON.stringify(context.result));
 #[test]
 fn actual_library_generates_browser_config_and_stops_cleanly() {
     let cache = tempfile::tempdir().unwrap();
-    let mut manager = manager(cache.path());
+    let manager = manager(cache.path());
     let source = "// 保留用户注释\nconst config = {custom: '用户配置', echolive:{broadcast:{}},editor:{websocket:{}}}";
     let response = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
@@ -105,14 +115,20 @@ fn actual_library_generates_browser_config_and_stops_cleanly() {
         assert_eq!(config["editor"]["websocket"]["enable"], true);
         assert_eq!(config["editor"]["websocket"]["url"], expected);
         assert_eq!(config["editor"]["websocket"]["auto_url"], false);
+        assert_eq!(
+            config["advanced"]["broadcast"]["allow_send_duplicate_message"],
+            true
+        );
         assert_eq!(config["custom"], "用户配置");
     }
+    let preview = execute_location(script, "http:", "localhost", "?other=1&preview=1");
+    assert_eq!(
+        preview["echolive"]["broadcast"]["websocket_url"],
+        "ws://localhost/ws?preview=1"
+    );
+    assert_eq!(preview["editor"]["websocket"]["url"], "ws://localhost/ws");
     manager
-        .reload(
-            PLUGIN_ID,
-            serde_json::from_str(MANIFEST_JSON).unwrap(),
-            library(),
-        )
+        .reload(PLUGIN_ID, fixture::manifest(), library())
         .unwrap();
     assert!(
         manager
@@ -129,7 +145,7 @@ fn actual_library_generates_browser_config_and_stops_cleanly() {
 #[test]
 fn actual_library_rejects_protocol_errors() {
     let cache = tempfile::tempdir().unwrap();
-    let mut manager = manager(cache.path());
+    let manager = manager(cache.path());
     for payload in [
         json!({"version":2,"source":"x"}),
         json!({"version":1}),
@@ -151,25 +167,17 @@ fn actual_library_rejects_protocol_errors() {
 #[test]
 fn route_registration_conflict_rolls_back_hot_update() {
     let cache = tempfile::tempdir().unwrap();
-    let mut manager = InternalPluginManager::new(cache.path());
+    let mut manager = fixture::manager(cache.path());
     let reject_routes = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let reject = reject_routes.clone();
     manager.set_route_validator(std::sync::Arc::new(move |_, _| {
         !reject.load(std::sync::atomic::Ordering::Acquire)
     }));
     manager
-        .load(
-            serde_json::from_str::<PluginManifest>(MANIFEST_JSON).unwrap(),
-            library(),
-            json!({"echo_root":".","media_root":"."}),
-        )
+        .load(fixture::manifest(), library(), json!({}))
         .unwrap();
     reject_routes.store(true, std::sync::atomic::Ordering::Release);
-    let result = manager.reload(
-        PLUGIN_ID,
-        serde_json::from_str(MANIFEST_JSON).unwrap(),
-        library(),
-    );
+    let result = manager.reload(PLUGIN_ID, fixture::manifest(), library());
     assert!(result.is_err(), "候选插件路由冲突时必须拒绝提交");
     let source = "const config = {echolive:{broadcast:{}},editor:{websocket:{}}}";
     let response = manager
@@ -194,10 +202,13 @@ fn actual_library_timeout_disables_follow_up_calls() {
         manager.invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source})),
         Err(PluginError::Timeout)
     ));
-    assert!(matches!(
-        manager.invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":"x"})),
-        Err(PluginError::Timeout)
-    ));
+    assert!(!manager.is_active(PLUGIN_ID));
+    assert!(
+        manager
+            .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":"x"}))
+            .is_err()
+    );
+    assert_eq!(manager.drain_faults().len(), 1);
 }
 
 /// 真实资源定义穿过动态库 ABI，配置保存、拒绝和热更新共享同一有效值。
@@ -206,14 +217,10 @@ fn native_settings_validate_update_and_survive_hot_reload() {
     let cache = tempfile::tempdir().unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
     let source = std::fs::read_to_string(root.join("config.js")).unwrap();
-    let mut config = json!({"echo_root":root,"media_root":".","echolive_config":{}});
-    let mut manager = InternalPluginManager::new(cache.path());
+    let mut config = json!({"echolive_config":{}});
+    let manager = fixture::manager(cache.path());
     manager
-        .load(
-            serde_json::from_str(MANIFEST_JSON).unwrap(),
-            library(),
-            config.clone(),
-        )
+        .load(fixture::manifest(), library(), config.clone())
         .unwrap();
     let ui = manager.ui_contributions();
     let field = &ui[PLUGIN_ID].fields[0];
@@ -268,11 +275,7 @@ fn native_settings_validate_update_and_survive_hot_reload() {
         assert_eq!(manager.ui_contributions()[PLUGIN_ID], saved_ui[PLUGIN_ID]);
     }
     manager
-        .reload(
-            PLUGIN_ID,
-            serde_json::from_str(MANIFEST_JSON).unwrap(),
-            library(),
-        )
+        .reload(PLUGIN_ID, fixture::manifest(), library())
         .unwrap();
     let script = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
@@ -294,13 +297,10 @@ fn malformed_resources_disable_form_and_preserve_frontend_generation() {
         "const config = broken();",
     )
     .unwrap();
-    let mut manager = InternalPluginManager::new(cache.path());
+    let manager = fixture::manager(cache.path());
+    let archive = fixture::package(raw_library(), Some(resources.path()));
     manager
-        .load(
-            serde_json::from_str(MANIFEST_JSON).unwrap(),
-            library(),
-            json!({"echo_root":resources.path(),"media_root":"."}),
-        )
+        .load(fixture::manifest(), &archive, json!({}))
         .unwrap();
     let ui = manager.ui_contributions();
     let schema: Value = serde_json::from_str(&ui[PLUGIN_ID].fields[0].schema_json).unwrap();

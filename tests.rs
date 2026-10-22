@@ -6,11 +6,23 @@ use vchat_plugin_api::proto::{PluginRequest, PluginResponse};
 
 unsafe extern "C" fn host_invoke(
     _: HostContext,
-    _: *const u8,
-    _: usize,
-    _: WriteCallback,
-    _: *mut c_void,
+    data: *const u8,
+    len: usize,
+    write: WriteCallback,
+    out: *mut c_void,
 ) -> i32 {
+    let request = unsafe { std::slice::from_raw_parts(data, len) };
+    let request = vchat_plugin_api::proto::HostRequest::decode(request).unwrap();
+    if request.service == "runtime.paths" {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend");
+        let response = serde_json::to_vec(&vchat_plugin_api::runtime::RuntimePaths {
+            package_root: root.clone(),
+            resources_root: root.clone(),
+            data_root: root,
+        })
+        .unwrap();
+        return unsafe { write(out, response.as_ptr(), response.len()) };
+    }
     STATUS_OK
 }
 
@@ -29,7 +41,7 @@ fn instance() -> PluginContext {
         invoke: host_invoke,
     };
     let mut context = std::ptr::null_mut();
-    let config = br#"{"echo_root":".","media_root":"."}"#;
+    let config = br#"{}"#;
     assert_eq!(
         unsafe { (API.create)(&host, config.as_ptr(), config.len(), &mut context) },
         STATUS_OK
@@ -136,7 +148,7 @@ fn rejected_ui_registration_keeps_previous_context() {
     let ctx = unsafe { abi::context(ptr).unwrap() };
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
-    ctx.config = serde_json::json!({"echo_root": root,"media_root":".","echolive_config":{}});
+    ctx.config = serde_json::json!({"echolive_config":{}});
     ctx.schema = schema::load_schema(&root).unwrap();
     let previous = ctx.config.clone();
     let previous_schema = ctx.schema.clone();
