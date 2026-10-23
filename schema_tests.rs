@@ -183,7 +183,7 @@ fn custom_resource_directory_defines_current_fields_and_reports_file_errors() {
     .unwrap();
     std::fs::write(
         root.path().join("config.js"),
-        "const config = {global:{custom:'资源'}};\n// 保留自定义代码",
+        "const config = {data_version:17,global:{custom:'资源'}};\n// 保留自定义代码",
     )
     .unwrap();
     let schema = load_schema(root.path()).unwrap();
@@ -193,7 +193,7 @@ fn custom_resource_directory_defines_current_fields_and_reports_file_errors() {
     // 资源中的旧类型值仍进入表单，用户可修改草稿或恢复官方默认。
     std::fs::write(
         root.path().join("config.js"),
-        "const config = {global:{custom:42}};",
+        "const config = {data_version:17,global:{custom:42}};",
     )
     .unwrap();
     assert_eq!(

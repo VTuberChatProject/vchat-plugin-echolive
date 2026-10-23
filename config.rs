@@ -12,7 +12,33 @@ pub(crate) fn generate_config_with(
     schema: Option<&Value>,
     overrides: &Value,
 ) -> String {
-    let fields = schema.and_then(|s| s["fields"].as_array());
+    let inferred;
+    let schema = if let Some(schema) = schema {
+        schema
+    } else {
+        inferred = source_schema(source);
+        &inferred
+    };
+    if schema["read_only"] == true {
+        return source.to_owned();
+    }
+    // 直接引用的目录可能被外部更新；声明版本变化时等待重新接入，保持原配置结构。
+    if let Ok(resource) = crate::schema::parse_declaration(source, "config")
+        && let (Some(declared), Some(expected)) =
+            (resource.get("data_version"), schema.get("data_version"))
+        && declared != expected
+    {
+        return source.to_owned();
+    }
+    let fields = schema["fields"].as_array();
+    let managed = fields
+        .into_iter()
+        .flatten()
+        .filter_map(|field| {
+            let path = field["path"].as_str()?;
+            crate::schema::managed_value(path).map(|value| (path.to_owned(), value))
+        })
+        .collect::<serde_json::Map<_, _>>();
     let defaults = fields
         .into_iter()
         .flatten()
@@ -22,10 +48,15 @@ pub(crate) fn generate_config_with(
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(path, _)| {
+        .filter(|(path, value)| {
             crate::schema::safe_path(path)
                 && crate::schema::managed_value(path).is_none()
-                && fields.is_some_and(|fs| fs.iter().any(|f| f["path"].as_str() == Some(path)))
+                && fields.is_some_and(|fs| {
+                    fs.iter().any(|field| {
+                        field["path"].as_str() == Some(path)
+                            && crate::validation::validate_value(field, value).is_ok()
+                    })
+                })
         })
         .map(|(path, value)| (path.clone(), value.clone()))
         .collect::<serde_json::Map<_, _>>();
@@ -40,6 +71,8 @@ pub(crate) fn generate_config_with(
     result.push_str(&serde_json::to_string(&defaults).expect("JSON 默认值序列化"));
     result.push_str(";\nconst overrides = ");
     result.push_str(&serde_json::to_string(&allowed).expect("JSON 用户配置序列化"));
+    result.push_str(";\nconst managed = ");
+    result.push_str(&serde_json::to_string(&managed).expect("JSON 宿主配置序列化"));
     result.push_str(r#";
     const own = (node, key) => Object.prototype.hasOwnProperty.call(node, key);
     const set = (path, value, onlyMissing = false) => {
@@ -59,16 +92,54 @@ pub(crate) fn generate_config_with(
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsAddress = `${protocol}//${window.location.host}/ws`;
     const preview = (window.location.search || '').slice(1).split('&').includes('preview=1');
-    set('echolive.broadcast.enable', true);
-    set('echolive.broadcast.websocket_enable', true);
-    set('echolive.broadcast.websocket_url', wsAddress + (preview ? '?preview=1' : ''));
-    set('editor.websocket.enable', true);
-    set('editor.websocket.url', wsAddress);
-    set('editor.websocket.auto_url', false);
-    // 宿主队列将相同正文视为独立投递，每次都需要真实打印及完成回执。
-    set('advanced.broadcast.allow_send_duplicate_message', true);
+    // 连接覆盖仅选择当前版本定义中的路径，保持历史配置结构与 data_version。
+    for (const [path, value] of Object.entries(managed)) {
+        const address = path === 'editor.websocket.url' ? wsAddress : wsAddress + (preview ? '?preview=1' : '');
+        const isAddress = ['echolive.websocket_url', 'echolive.broadcast.websocket_url', 'editor.websocket.url'].includes(path);
+        set(path, isAddress ? address : value);
+    }
 }
 InjectConfig();
 "#);
     result
+}
+
+/// 独立公开接口没有目录定义时，只识别已知版本并覆盖资源实际声明的宿主字段。
+fn source_schema(source: &str) -> Value {
+    let Ok(resource) = crate::schema::parse_declaration(source, "config") else {
+        return json!({"read_only": true});
+    };
+    let Some(version) = resource["data_version"]
+        .as_u64()
+        .filter(|v| (1..=crate::versions::MAX_DATA_VERSION).contains(v))
+    else {
+        return json!({"read_only": true});
+    };
+    let mut fields = Vec::new();
+    for path in [
+        "echolive.broadcast_enable",
+        "echolive.websocket_enable",
+        "echolive.websocket_url",
+        "echolive.broadcast.enable",
+        "echolive.broadcast.websocket_enable",
+        "echolive.broadcast.websocket_url",
+        "editor.websocket.enable",
+        "editor.websocket.url",
+        "editor.websocket.auto_url",
+        "advanced.broadcast.allow_send_duplicate_message",
+    ] {
+        let historical = if path.starts_with("editor.websocket.") {
+            version >= 10
+        } else if path.starts_with("echolive.broadcast.") {
+            version >= 4
+        } else if path.starts_with("echolive.") {
+            version <= 3
+        } else {
+            true
+        };
+        if historical && let Some(value) = crate::schema::path_value(&resource, path) {
+            fields.push(json!({"path": path, "default": value}));
+        }
+    }
+    json!({"read_only": false, "fields": fields})
 }

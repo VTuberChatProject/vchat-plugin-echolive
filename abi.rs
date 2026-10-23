@@ -51,8 +51,9 @@ pub(crate) unsafe extern "C" fn invoke(
         if request.protocol_version != PROTOCOL_VERSION
             || !(matches!(
                 request.operation.as_str(),
-                OPERATION | HTTP_OPERATION | "config.changed"
-            ) || request.operation.starts_with("frontend.ws."))
+                OPERATION | HTTP_OPERATION | "config.changed" | "config.validate"
+            ) || request.operation.starts_with("frontend.ws.")
+                || request.operation.starts_with("echolive.resources."))
         {
             return write_error(
                 ctx,
@@ -71,8 +72,16 @@ pub(crate) unsafe extern "C" fn invoke(
                 "配置插件请求不是有效 JSON",
             );
         };
-        if request.operation == "config.changed" {
-            return match crate::management::change_config(ctx, payload) {
+        if matches!(
+            request.operation.as_str(),
+            "config.changed" | "config.validate"
+        ) {
+            let result = if request.operation == "config.validate" {
+                crate::management::validate_config(ctx, &payload).map(|_| ())
+            } else {
+                crate::management::change_config(ctx, payload)
+            };
+            return match result {
                 Ok(()) => {
                     let response = proto::PluginResponse {
                         payload_json: br#"{"version":1,"accepted":true}"#.to_vec(),
@@ -95,6 +104,19 @@ pub(crate) unsafe extern "C" fn invoke(
         }
         if request.operation.starts_with("frontend.ws.") {
             return write_empty_response(write, out);
+        }
+        if request.operation.starts_with("echolive.resources.") {
+            return match crate::resource_management::invoke(ctx, &request.operation, &payload) {
+                Ok(value) => {
+                    let response = proto::PluginResponse {
+                        payload_json: value.to_string().into_bytes(),
+                        ..Default::default()
+                    }
+                    .encode_to_vec();
+                    unsafe { write(out, response.as_ptr(), response.len()) }
+                }
+                Err(error) => write_error(ctx, write, out, "resource_failed", &error),
+            };
         }
         if request.operation == HTTP_OPERATION {
             return write_http_response(ctx, write, out, &payload);
@@ -164,7 +186,25 @@ fn write_http_response(
     }
     let (resource_root, relative, plugin_media) =
         if let Some(relative) = path.strip_prefix("/Echo-Live/") {
-            (ctx.resources.join("Echo-Live"), relative, false)
+            let Some(root) = crate::management::resource_root(&ctx.config) else {
+                return write_error(
+                    ctx,
+                    write,
+                    out,
+                    "resource_not_ready",
+                    "EchoLive 资源未就绪，请在插件设置中选择文件夹、下载或导入 ZIP",
+                );
+            };
+            if !root.is_dir() {
+                return write_error(
+                    ctx,
+                    write,
+                    out,
+                    "resource_not_ready",
+                    "EchoLive 资源目录已失效，请重新选择资源",
+                );
+            }
+            (root.to_path_buf(), relative, false)
         } else if let Some(relative) = path.strip_prefix("/echolive-media/") {
             (ctx.resources.join("media"), relative, true)
         } else {
@@ -226,7 +266,10 @@ fn write_http_response(
         content_type = "text/javascript; charset=utf-8".into();
         no_store = true;
     }
-    if !plugin_media && relative == "live.html" {
+    if !plugin_media
+        && relative == "live.html"
+        && ctx.config["echolive_resource"]["capabilities"]["bridge"] == true
+    {
         let source = match String::from_utf8(body) {
             Ok(source) => source,
             Err(_) => {
@@ -283,6 +326,7 @@ fn write_error(
         "forbidden" => 403,
         "invalid_request" | "invalid_path" | "invalid_encoding" | "invalid_config" => 400,
         "read_failed" | "response_too_large" => 500,
+        "resource_not_ready" => 503,
         _ => 404,
     };
     let response = proto::PluginResponse {

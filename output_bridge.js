@@ -1,6 +1,15 @@
 /* VChat 剧本输出兼容层：以批次隔离打印回执、延迟任务和清空操作。 */
 (() => {
     'use strict';
+    // 资源目录可能被用户更新；安装桥接前确认这一代页面具有完整控制接口。
+    if (typeof EchoLiveBroadcastPortal === 'undefined' || typeof EchoLive === 'undefined' ||
+        typeof Echo === 'undefined' ||
+        !['getDataPortal', 'echoPrinting', 'echoStateUpdate'].every(key => typeof EchoLiveBroadcastPortal.prototype[key] === 'function') ||
+        !['clearTask', 'clearDisplayHiddenWaitTimer', 'send'].every(key => typeof EchoLive.prototype[key] === 'function') ||
+        !['createSubTrack', 'next', 'print', 'on', 'stop'].every(key => typeof Echo.prototype[key] === 'function')) {
+        console.info('VChat：当前 EchoLive 页面使用基础输出模式，批次控制能力受限。');
+        return;
+    }
     const states = new WeakMap();
     const echoes = new WeakMap();
     const copy = value => value ? { ...value } : null;

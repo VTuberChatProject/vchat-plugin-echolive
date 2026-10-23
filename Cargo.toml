@@ -1,6 +1,6 @@
 [package]
 name = "vchat-echolive-config-plugin"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2024"
 description = "VChat 内置 Echo-Live 配置注入插件"
 license = "GPL-3.0-or-later"
@@ -14,11 +14,15 @@ prost.workspace = true
 serde_json.workspace = true
 json5 = "0.4"
 mime_guess = "2.0"
+reqwest.workspace = true
+sha2 = "0.11"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tempfile.workspace = true
+tokio.workspace = true
 vchat-plugin-api = { path = "../../Core/Interfaces" }
 
 [dev-dependencies]
 vchat-internal-plugin = { path = "../../Adapter/InternalPlugin" }
-tempfile.workspace = true
 
 [[test]]
 name = "dynamic_library"

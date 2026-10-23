@@ -5,8 +5,15 @@ mod lifecycle;
 mod management;
 mod output;
 mod output_cards;
+mod resource_archive;
+mod resource_download;
+mod resource_jobs;
+mod resource_management;
+mod resource_manifest;
+mod resources;
 mod schema;
 mod validation;
+mod versions;
 
 use abi::invoke;
 pub use config::generate_config;
@@ -22,6 +29,9 @@ const MAX_PAYLOAD: usize = 16 * 1024 * 1024;
 struct Context {
     host: HostApi,
     resources: std::path::PathBuf,
+    assets: Option<std::path::PathBuf>,
+    jobs: resource_jobs::Jobs,
+    resource_task: serde_json::Value,
     config: serde_json::Value,
     schema: serde_json::Value,
 }
@@ -48,4 +58,10 @@ pub extern "C" fn vchat_internal_plugin_get_api() -> *const PluginApi {
 mod tests;
 
 #[cfg(test)]
+mod resource_history_tests;
+#[cfg(test)]
+mod resource_tests;
+#[cfg(test)]
 mod schema_tests;
+#[cfg(test)]
+mod versions_tests;

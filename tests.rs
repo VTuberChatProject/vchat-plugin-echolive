@@ -19,6 +19,7 @@ unsafe extern "C" fn host_invoke(
             package_root: root.clone(),
             resources_root: root.clone(),
             data_root: root,
+            assets_root: None,
         })
         .unwrap();
         return unsafe { write(out, response.as_ptr(), response.len()) };
@@ -148,7 +149,8 @@ fn rejected_ui_registration_keeps_previous_context() {
     let ctx = unsafe { abi::context(ptr).unwrap() };
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
-    ctx.config = serde_json::json!({"echolive_config":{}});
+    ctx.config =
+        serde_json::json!({"echolive_config":{},"echolive_resource":{"id":"test","path":root}});
     ctx.schema = schema::load_schema(&root).unwrap();
     let previous = ctx.config.clone();
     let previous_schema = ctx.schema.clone();

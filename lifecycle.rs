@@ -1,4 +1,4 @@
-//! 无后台任务的配置插件生命周期和快照管理。
+//! 资源任务、配置插件生命周期和快照管理。
 use crate::{
     Context, PLUGIN_ID,
     abi::{boundary, bytes, context},
@@ -46,6 +46,9 @@ pub(crate) unsafe extern "C" fn create(
         let ctx = Context {
             host,
             resources: paths.resources_root,
+            assets: paths.assets_root,
+            jobs: Default::default(),
+            resource_task: serde_json::Value::Null,
             config,
             schema,
         };
@@ -105,6 +108,10 @@ pub(crate) unsafe extern "C" fn quiesce(ptr: PluginContext) -> i32 {
             return STATUS_ERROR;
         };
         ctx.log("Echo-Live 配置插件静止");
+        ctx.jobs.shutdown();
+        if let Ok(state) = ctx.jobs.cancel(None) {
+            ctx.resource_task = state;
+        }
         STATUS_OK
     })
 }

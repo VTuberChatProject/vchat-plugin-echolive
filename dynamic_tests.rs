@@ -49,7 +49,7 @@ fn library() -> &'static Path {
 fn manager(cache: &Path) -> InternalPluginManager {
     let manager = fixture::manager(cache);
     manager
-        .load(fixture::manifest(), library(), json!({}))
+        .load(fixture::manifest(), library(), fixture::config(None))
         .unwrap();
     manager
 }
@@ -174,7 +174,7 @@ fn route_registration_conflict_rolls_back_hot_update() {
         !reject.load(std::sync::atomic::Ordering::Acquire)
     }));
     manager
-        .load(fixture::manifest(), library(), json!({}))
+        .load(fixture::manifest(), library(), fixture::config(None))
         .unwrap();
     let original_cards = manager.ui_contributions()[PLUGIN_ID].output_cards.clone();
     reject_routes.store(true, std::sync::atomic::Ordering::Release);
@@ -222,7 +222,7 @@ fn native_settings_validate_update_and_survive_hot_reload() {
     let cache = tempfile::tempdir().unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
     let source = std::fs::read_to_string(root.join("config.js")).unwrap();
-    let mut config = json!({"echolive_config":{}});
+    let mut config = fixture::config(None);
     let manager = fixture::manager(cache.path());
     manager
         .load(fixture::manifest(), library(), config.clone())
@@ -320,7 +320,7 @@ fn native_settings_validate_update_and_survive_hot_reload() {
     manager.disable(PLUGIN_ID).unwrap();
 }
 
-/// 错误配置资源隔离在设置表单，原始脚本生成与连接注入继续可用。
+/// 错误配置资源隔离在设置表单，原始脚本保持完整供用户修复。
 #[test]
 fn malformed_resources_disable_form_and_preserve_frontend_generation() {
     let cache = tempfile::tempdir().unwrap();
@@ -333,7 +333,11 @@ fn malformed_resources_disable_form_and_preserve_frontend_generation() {
     let manager = fixture::manager(cache.path());
     let archive = fixture::package(raw_library(), Some(resources.path()));
     manager
-        .load(fixture::manifest(), &archive, json!({}))
+        .load(
+            fixture::manifest(),
+            &archive,
+            fixture::config(Some(resources.path())),
+        )
         .unwrap();
     let ui = manager.ui_contributions();
     let schema: Value = serde_json::from_str(&ui[PLUGIN_ID].fields[0].schema_json).unwrap();
@@ -342,10 +346,6 @@ fn malformed_resources_disable_form_and_preserve_frontend_generation() {
     let response = manager
         .invoke_json(PLUGIN_ID, OPERATION, &json!({"version":1,"source":source}))
         .unwrap();
-    assert_eq!(
-        execute(response["script"].as_str().unwrap(), "http:", "localhost")["editor"]["websocket"]
-            ["url"],
-        "ws://localhost/ws"
-    );
+    assert_eq!(response["script"], source);
     manager.disable(PLUGIN_ID).unwrap();
 }
