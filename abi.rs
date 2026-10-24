@@ -1,6 +1,5 @@
 //! 插件 C ABI 的请求边界、协议校验和响应复制。
 use crate::{Context, HTTP_OPERATION, MAX_PAYLOAD, OPERATION, PROTOCOL_VERSION};
-use prost::Message;
 use std::{ffi::c_void, panic::AssertUnwindSafe};
 use vchat_plugin_api::{abi::*, proto};
 
@@ -31,9 +30,8 @@ pub(crate) unsafe fn context<'a>(ptr: PluginContext) -> Option<&'a mut Context> 
 
 pub(crate) unsafe extern "C" fn invoke(
     ptr: PluginContext,
-    data: *const u8,
-    len: usize,
-    write: WriteCallback,
+    request: *const vchat_plugin_api::abi::PluginRequest,
+    write: ReplySink,
     out: *mut c_void,
 ) -> i32 {
     boundary(|| {
@@ -41,11 +39,8 @@ pub(crate) unsafe extern "C" fn invoke(
         let Some(ctx) = (unsafe { context(ptr) }) else {
             return STATUS_ERROR;
         };
-        let Some(data) = (unsafe { bytes(data, len) }) else {
-            return STATUS_ERROR;
-        };
-        let Ok(request) = proto::PluginRequest::decode(data) else {
-            ctx.log("配置插件 Protobuf 请求无效");
+        let Ok(request) = (unsafe { vchat_plugin_api::sdk::read_request(request) }) else {
+            ctx.log("配置插件 C ABI 请求无效");
             return STATUS_ERROR;
         };
         if request.protocol_version != PROTOCOL_VERSION
@@ -86,9 +81,8 @@ pub(crate) unsafe extern "C" fn invoke(
                     let response = proto::PluginResponse {
                         payload_json: br#"{"version":1,"accepted":true}"#.to_vec(),
                         ..Default::default()
-                    }
-                    .encode_to_vec();
-                    unsafe { write(out, response.as_ptr(), response.len()) }
+                    };
+                    unsafe { vchat_plugin_api::sdk::write_response(&response, write, out) }
                 }
                 Err(error) => write_error(ctx, write, out, "invalid_config", &error),
             };
@@ -111,9 +105,8 @@ pub(crate) unsafe extern "C" fn invoke(
                     let response = proto::PluginResponse {
                         payload_json: value.to_string().into_bytes(),
                         ..Default::default()
-                    }
-                    .encode_to_vec();
-                    unsafe { write(out, response.as_ptr(), response.len()) }
+                    };
+                    unsafe { vchat_plugin_api::sdk::write_response(&response, write, out) }
                 }
                 Err(error) => write_error(ctx, write, out, "resource_failed", &error),
             };
@@ -139,25 +132,29 @@ pub(crate) unsafe extern "C" fn invoke(
             .expect("配置插件响应序列化不会失败"),
             ..Default::default()
         };
-        let encoded = response.encode_to_vec();
-        if encoded.len() > MAX_PAYLOAD {
+        let encoded = &response;
+        if response
+            .body
+            .len()
+            .saturating_add(response.payload_json.len())
+            > MAX_PAYLOAD
+        {
             ctx.log("配置插件响应超出宿主容量限制");
             return STATUS_ERROR;
         }
         ctx.log("Echo-Live 配置注入完成");
         // SAFETY: callback and output context are owned by the host for this invocation.
-        unsafe { write(out, encoded.as_ptr(), encoded.len()) }
+        unsafe { vchat_plugin_api::sdk::write_response(encoded, write, out) }
     })
 }
 
-fn write_empty_response(write: WriteCallback, out: *mut c_void) -> i32 {
-    let encoded = proto::PluginResponse::default().encode_to_vec();
-    unsafe { write(out, encoded.as_ptr(), encoded.len()) }
+fn write_empty_response(write: ReplySink, out: *mut c_void) -> i32 {
+    unsafe { vchat_plugin_api::sdk::write_response(&proto::PluginResponse::default(), write, out) }
 }
 
 fn write_http_response(
     ctx: &Context,
-    write: WriteCallback,
+    write: ReplySink,
     out: *mut c_void,
     payload: &serde_json::Value,
 ) -> i32 {
@@ -180,9 +177,8 @@ fn write_http_response(
             no_store: true,
             body: crate::output::BRIDGE.as_bytes().to_vec(),
             ..Default::default()
-        }
-        .encode_to_vec();
-        return unsafe { write(out, response.as_ptr(), response.len()) };
+        };
+        return unsafe { vchat_plugin_api::sdk::write_response(&response, write, out) };
     }
     let (resource_root, relative, plugin_media) =
         if let Some(relative) = path.strip_prefix("/Echo-Live/") {
@@ -301,8 +297,13 @@ fn write_http_response(
         body,
         ..Default::default()
     };
-    let encoded = response.encode_to_vec();
-    if encoded.len() > MAX_PAYLOAD {
+    let encoded = &response;
+    if response
+        .body
+        .len()
+        .saturating_add(response.payload_json.len())
+        > MAX_PAYLOAD
+    {
         return write_error(
             ctx,
             write,
@@ -311,12 +312,12 @@ fn write_http_response(
             "Echo-Live 资源响应过大",
         );
     }
-    unsafe { write(out, encoded.as_ptr(), encoded.len()) }
+    unsafe { vchat_plugin_api::sdk::write_response(encoded, write, out) }
 }
 
 fn write_error(
     ctx: &Context,
-    write: WriteCallback,
+    write: ReplySink,
     out: *mut c_void,
     code: &str,
     message: &str,
@@ -339,9 +340,9 @@ fn write_error(
         }),
         ..Default::default()
     };
-    let encoded = response.encode_to_vec();
+    let encoded = &response;
     // SAFETY: callback and output context are owned by the host for this invocation.
-    unsafe { write(out, encoded.as_ptr(), encoded.len()) }
+    unsafe { vchat_plugin_api::sdk::write_response(encoded, write, out) }
 }
 
 impl Context {
@@ -351,21 +352,10 @@ impl Context {
             service: "log".into(),
             payload_json: serde_json::to_vec(&serde_json::json!({"message": message})).unwrap(),
             ..Default::default()
-        }
-        .encode_to_vec();
-        // SAFETY: HostApi 回调和上下文由管理器持有，调用期间保持有效。
-        unsafe {
-            (self.host.invoke)(
-                self.host.context,
-                request.as_ptr(),
-                request.len(),
-                ignore_write,
-                std::ptr::null_mut(),
-            );
+        };
+        // SAFETY: 函数表与上下文在实例生命周期内稳定，宿主同步复制请求。
+        if let Err(error) = unsafe { vchat_plugin_api::sdk::call_host(&self.host, &request) } {
+            eprintln!("EchoLive 日志回调失败: {error}");
         }
     }
-}
-
-unsafe extern "C" fn ignore_write(_: *mut c_void, _: *const u8, _: usize) -> i32 {
-    STATUS_OK
 }

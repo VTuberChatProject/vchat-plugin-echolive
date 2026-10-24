@@ -1,14 +1,17 @@
 {
-  "package_version": 1,
+  "package_version": 2,
   "entry": "bin/__LIB_PREFIX__vchat_echolive_config_plugin.__LIB_EXTENSION__",
   "id": "builtin.echolive",
   "name": "Echo-Live 网页输出",
   "author": "AuraElicase",
   "description": "提供 Echo-Live 网页输出、配置管理与打印回执。",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "platform": "__PLATFORM__",
   "architecture": "__ARCHITECTURE__",
-  "abi_version": 1,
-  "protocol_version": 1,
-  "capabilities": ["frontend", "web", "ui"]
+  "abi_version": 2,
+  "capabilities": [
+    "frontend",
+    "web",
+    "ui"
+  ]
 }

@@ -3,28 +3,32 @@ use crate::{
     Context, PLUGIN_ID,
     abi::{boundary, bytes, context},
 };
-use prost::Message;
 use serde_json::Value;
 use std::ffi::c_void;
 use vchat_plugin_api::{abi::*, proto::StateSnapshot};
 
 pub(crate) unsafe extern "C" fn create(
     host: *const HostApi,
-    data: *const u8,
-    len: usize,
+    config: StringView,
     out: *mut PluginContext,
 ) -> i32 {
     boundary(|| {
+        let data = config.data;
+        let len = match usize::try_from(config.len) {
+            Ok(value) => value,
+            Err(_) => return STATUS_ERROR,
+        };
         if host.is_null() || out.is_null() {
             return STATUS_ERROR;
         }
         // SAFETY: checked above; the host struct is copied before returning.
-        let host = unsafe { *host };
-        if host.abi_version != ABI_VERSION
-            || host.struct_size < std::mem::size_of::<HostApi>() as u32
-        {
-            return STATUS_ERROR;
-        }
+        unsafe {
+            *out = std::ptr::null_mut();
+        };
+        let host = match unsafe { vchat_plugin_api::sdk::read_host_api(host) } {
+            Ok(host) => host,
+            Err(_) => return STATUS_ERROR,
+        };
         // SAFETY: `out` is supplied by the host and points to writable plugin context storage.
         let Some(data) = (unsafe { bytes(data, len) }) else {
             return STATUS_ERROR;
@@ -79,16 +83,14 @@ pub(crate) unsafe extern "C" fn start(ptr: PluginContext) -> i32 {
             service: "web.route.register".into(),
             payload_json,
             ..Default::default()
-        }
-        .encode_to_vec();
+        };
         let status = unsafe {
-            (ctx.host.invoke)(
-                ctx.host.context,
-                request.as_ptr(),
-                request.len(),
-                ignore_write,
-                std::ptr::null_mut(),
-            )
+            vchat_plugin_api::sdk::call_host(&ctx.host, &request)
+                .map(|_| STATUS_OK)
+                .unwrap_or_else(|error| {
+                    eprintln!("插件宿主调用失败: {error}");
+                    STATUS_ERROR
+                })
         };
         if status != STATUS_OK {
             ctx.log("Echo-Live 路由注册失败");
@@ -96,10 +98,6 @@ pub(crate) unsafe extern "C" fn start(ptr: PluginContext) -> i32 {
         }
         crate::management::register_ui(ctx, &ctx.config, &ctx.schema)
     })
-}
-
-unsafe extern "C" fn ignore_write(_: *mut c_void, _: *const u8, _: usize) -> i32 {
-    STATUS_OK
 }
 
 pub(crate) unsafe extern "C" fn quiesce(ptr: PluginContext) -> i32 {
@@ -129,7 +127,7 @@ pub(crate) unsafe extern "C" fn destroy(ptr: PluginContext) -> i32 {
 
 pub(crate) unsafe extern "C" fn save_state(
     ptr: PluginContext,
-    write: WriteCallback,
+    write: ReplySink,
     out: *mut c_void,
 ) -> i32 {
     boundary(|| {
@@ -140,27 +138,22 @@ pub(crate) unsafe extern "C" fn save_state(
             plugin_id: PLUGIN_ID.into(),
             format_version: 1,
             data: Vec::new(),
-        }
-        .encode_to_vec();
+        };
         // SAFETY: 宿主复制回调在本次 ABI 调用期间有效。
-        unsafe { write(out, snapshot.as_ptr(), snapshot.len()) }
+        unsafe { vchat_plugin_api::sdk::write_snapshot(&snapshot, write, out) }
     })
 }
 
 pub(crate) unsafe extern "C" fn restore_state(
     ptr: PluginContext,
-    data: *const u8,
-    len: usize,
+    snapshot: *const vchat_plugin_api::abi::StateSnapshot,
 ) -> i32 {
     boundary(|| {
         if ptr.is_null() {
             return STATUS_ERROR;
         }
         // 无业务状态仍校验快照归属和格式，支持管理器安全热更新。
-        let Some(data) = (unsafe { bytes(data, len) }) else {
-            return STATUS_ERROR;
-        };
-        let Ok(snapshot) = StateSnapshot::decode(data) else {
+        let Ok(snapshot) = (unsafe { vchat_plugin_api::sdk::read_snapshot(snapshot) }) else {
             return STATUS_ERROR;
         };
         if snapshot.plugin_id == PLUGIN_ID

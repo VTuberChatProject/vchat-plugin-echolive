@@ -4,12 +4,7 @@ use vchat_plugin_api::proto::{OutputAction, OutputCard};
 /// 页面根路径由宿主按实际监听地址解析，插件仅声明资源归属。
 pub(crate) fn cards() -> Vec<OutputCard> {
     [
-        (
-            "live",
-            "Live",
-            "实时消息输出",
-            "/Echo-Live/live.html",
-        ),
+        ("live", "Live", "实时消息输出", "/Echo-Live/live.html"),
         (
             "history",
             "History",

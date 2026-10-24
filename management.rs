@@ -1,8 +1,7 @@
 //! 配置表单声明、原子更新与资源脚本生成的插件业务边界。
 use crate::Context;
-use prost::Message;
 use serde_json::{Value, json};
-use std::{ffi::c_void, path::Path};
+use std::path::Path;
 use vchat_plugin_api::{abi::*, proto};
 
 /// 解析失败作为表单错误展示，保持原有资源服务可用。
@@ -53,17 +52,15 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
             ..Default::default()
         }),
         ..Default::default()
-    }
-    .encode_to_vec();
+    };
     // SAFETY: 宿主同步复制请求，回调上下文在当前调用内有效。
     let status = unsafe {
-        (ctx.host.invoke)(
-            ctx.host.context,
-            request.as_ptr(),
-            request.len(),
-            ignore_write,
-            std::ptr::null_mut(),
-        )
+        vchat_plugin_api::sdk::call_host(&ctx.host, &request)
+            .map(|_| STATUS_OK)
+            .unwrap_or_else(|error| {
+                eprintln!("插件宿主调用失败: {error}");
+                STATUS_ERROR
+            })
     };
     if status != STATUS_OK {
         ctx.log("EchoLive 配置表单注册失败");
@@ -135,10 +132,6 @@ pub(crate) fn generate(ctx: &Context, source: &str) -> String {
         &empty
     };
     crate::config::generate_config_with(source, valid.then_some(&ctx.schema), overrides)
-}
-
-unsafe extern "C" fn ignore_write(_: *mut c_void, _: *const u8, _: usize) -> i32 {
-    STATUS_OK
 }
 
 #[cfg(test)]
