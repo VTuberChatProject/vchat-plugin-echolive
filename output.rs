@@ -16,6 +16,7 @@ pub(crate) fn inject_html(source: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "external-resource-tests")]
     #[test]
     fn browser_bridge_handles_preemption_and_stale_callbacks() {
         let output = std::process::Command::new("node")

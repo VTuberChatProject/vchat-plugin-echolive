@@ -16,7 +16,9 @@ const context = {
 };
 context.window = context;
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '../../Assets/Frontend/Echo-Live/res/class/Echo.js'), 'utf8'), context);
+const resourceRoot = process.env.VCHAT_ECHOLIVE_RESOURCE_ROOT;
+assert.ok(resourceRoot, '请设置 VCHAT_ECHOLIVE_RESOURCE_ROOT 为实际 Echo-Live 资源目录');
+vm.runInContext(fs.readFileSync(path.join(resourceRoot, 'res/class/Echo.js'), 'utf8'), context);
 vm.runInContext(`
 class EchoLiveBroadcast {
     static API_NAME_ECHO_PRINTING = 'echo_printing';

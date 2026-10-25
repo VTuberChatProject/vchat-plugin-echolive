@@ -16,7 +16,7 @@ python Tools/package.py --profile release
 
 ## 资源与配置
 
-在插件设置中选择 Echo-Live 文件夹、导入 ZIP 或下载官方资源。配置按资源身份保存，支持官方 data_version 1～17。Live、History、媒体与 WebSocket 路由由启用的插件注册；配置错误通过宿主日志和设置表单报告。单元测试从已跟踪的官方历史夹具生成离线资源。
+在插件设置中选择 Echo-Live 文件夹、导入 ZIP 或下载官方资源。配置按资源身份保存，支持官方 data_version 1～17。Live、History、媒体与 WebSocket 路由由启用的插件注册；配置错误通过宿主日志和设置表单报告。单元测试从已跟踪的官方历史夹具生成离线资源。实际 Echo 打印器回归使用 `VCHAT_ECHOLIVE_RESOURCE_ROOT` 显式提供资源，再执行 `cargo test --locked --features external-resource-tests`。
 
 ## 迁移来源
 

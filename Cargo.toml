@@ -11,6 +11,9 @@ license = "GPL-3.0-or-later"
 path = "lib.rs"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+external-resource-tests = []
+
 [dependencies]
 serde_json = "1.0"
 json5 = "0.4"
