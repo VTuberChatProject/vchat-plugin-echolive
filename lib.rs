@@ -65,3 +65,6 @@ mod resource_tests;
 mod schema_tests;
 #[cfg(test)]
 mod versions_tests;
+
+#[cfg(test)]
+mod test_resources;

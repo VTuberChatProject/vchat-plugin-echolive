@@ -11,7 +11,7 @@ unsafe extern "C" fn host_invoke(
 ) -> i32 {
     let request = unsafe { vchat_plugin_api::sdk::read_host_request(request) }.unwrap();
     if request.service == "runtime.paths" {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend");
+        let root = crate::test_resources::root();
         let response = serde_json::to_vec(&vchat_plugin_api::runtime::RuntimePaths {
             package_root: root.clone(),
             resources_root: root.clone(),
@@ -160,8 +160,7 @@ fn rejected_ui_registration_keeps_previous_context() {
     }
     let ptr = instance();
     let ctx = unsafe { abi::context(ptr).unwrap() };
-    let root =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live");
+    let root = crate::test_resources::root();
     ctx.config =
         serde_json::json!({"echolive_config":{},"echolive_resource":{"id":"test","path":root}});
     ctx.schema = schema::load_schema(&root).unwrap();

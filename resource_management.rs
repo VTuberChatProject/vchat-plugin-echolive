@@ -93,10 +93,7 @@ mod tests {
     /// 两份资源分别保存自己的覆盖，首次接入按目标定义继承兼容值。
     #[test]
     fn profiles_restore_each_directory_and_inherit_only_compatible_fields() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../Assets/Frontend/Echo-Live")
-            .canonicalize()
-            .unwrap();
+        let root = crate::test_resources::root().canonicalize().unwrap();
         let a = json!({"id":"a","path":root,"source":"folder"});
         let b = json!({"id":"b","path":root,"source":"folder"});
         let mut first = candidate(

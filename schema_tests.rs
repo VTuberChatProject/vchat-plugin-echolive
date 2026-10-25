@@ -3,12 +3,12 @@ use crate::{config::generate_config_with, schema::*, validation::*};
 use serde_json::{Value, json};
 use std::{
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
 };
 
 fn asset_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Frontend/Echo-Live")
+    crate::test_resources::root()
 }
 
 fn field<'a>(schema: &'a Value, path: &str) -> &'a Value {
