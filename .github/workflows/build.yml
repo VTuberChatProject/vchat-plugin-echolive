@@ -1,9 +1,19 @@
-# 独立构建、验证并打包插件。
+# 独立验证、打包插件，并在主分支构建成功后发布本仓库 nightly。
 name: Plugin
 on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+# 同一分支按顺序完成构建与发布，等待中的运行保留最新一次。
+concurrency:
+  group: plugin-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -20,8 +30,83 @@ jobs:
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked --release
-      - run: python Tools/package.py --profile release
+      - name: 打包平台插件
+        shell: pwsh
+        run: |
+          $timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
+          $commit = $env:GITHUB_SHA.Substring(0, 7)
+          $platform = $env:RUNNER_OS.ToLowerInvariant()
+          $architecture = $env:RUNNER_ARCH.ToLowerInvariant()
+          $packageName = "builtin.echolive-nightly-$platform-$architecture-$timestamp-$commit.vcplug"
+          python Tools/package.py --profile release --output "target/$packageName"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "PACKAGE_PATH=target/$packageName" >> $env:GITHUB_ENV
+          Write-Host "插件包已准备: $packageName"
       - uses: actions/upload-artifact@v4
         with:
-          name: Plugin-${{ runner.os }}
-          path: target/*.vcplug
+          name: Plugin-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ env.PACKAGE_PATH }}
+          if-no-files-found: error
+
+  create-nightly-release:
+    needs: build
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # 跨分支的手动发布也共用发布锁，避免清理操作交错。
+    concurrency:
+      group: plugin-nightly-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: 下载所有平台插件
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Plugin-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: 发布 nightly 并清理旧版本
+        env:
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timestamp=$(date -u +"%Y%m%d-%H%M%S")
+          commit_sha="${GITHUB_SHA:0:7}"
+          tag_name="nightly-${timestamp}-${commit_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          # 发布前记录旧版本；新版本及附件发布成功后再清理。
+          gh api --paginate "repos/$GH_REPO/releases" \
+            --jq '.[] | select(.prerelease and (.draft | not) and (.tag_name | startswith("nightly-"))) | .tag_name' \
+            > old-nightly-tags.txt
+
+          cat > release_notes.md << EOF
+          # Echo-Live Nightly Build
+
+          **构建时间**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **源提交**: [\`${commit_sha}\`](${SOURCE_URL})
+
+          下载与 VChat 运行平台及架构匹配的 \`.vcplug\`，在「设置 → 拓展」中导入并启用。
+          文件名中的 windows / macos / linux 表示平台，x64 / arm64 表示架构。
+          此版本用于测试和预览；新的 nightly 发布成功后会清理旧版本。
+          EOF
+
+          gh release create "$tag_name" artifacts/*.vcplug \
+            --target "$GITHUB_SHA" \
+            --title "Echo-Live Nightly ${timestamp}" \
+            --notes-file release_notes.md \
+            --prerelease
+
+          while IFS= read -r old_tag; do
+            if [[ -n "$old_tag" ]]; then
+              echo "清理旧 nightly: $old_tag"
+              gh release delete "$old_tag" --yes --cleanup-tag
+            fi
+          done < old-nightly-tags.txt
