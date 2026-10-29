@@ -1,3 +1,38 @@
+/* 输出页面按卡片隔离 WebSocket 与跨标签广播，资源目录保持原样。 */
+(() => {
+    'use strict';
+    if (typeof location === 'undefined') return;
+    const card = /\/history\.html$/.test(location.pathname) ? 'history' : 'live';
+    const NativeWebSocket = globalThis.WebSocket;
+    if (typeof NativeWebSocket === 'function') {
+        globalThis.WebSocket = class extends NativeWebSocket {
+            constructor(address, protocols) {
+                const url = new URL(address, location.href);
+                if (url.host === location.host) url.searchParams.set('card', card);
+                super(url.href, ...(protocols === undefined ? [] : [protocols]));
+            }
+        };
+    }
+    const NativeChannel = globalThis.BroadcastChannel;
+    if (typeof NativeChannel === 'function') {
+        globalThis.BroadcastChannel = class extends NativeChannel {
+            constructor(name) { super(`vchat:${card}:${name}`); }
+        };
+    }
+    if (card === 'history' && typeof EchoLiveBroadcastHistory !== 'undefined') {
+        const receive = EchoLiveBroadcastHistory.prototype.getDataHistory;
+        EchoLiveBroadcastHistory.prototype.getDataHistory = function(packet, listener = this) {
+            if (packet.action === 'message_data') {
+                for (const item of packet.data?.messages || []) {
+                    listener.echoLiveHistory.send({ username: packet.data?.username, message:item.message });
+                }
+                return;
+            }
+            if (packet.action === 'vchat_output_clear') { listener.echoLiveHistory.clear(); return; }
+            return receive.call(this, packet, listener);
+        };
+    }
+})();
 /* VChat 剧本输出兼容层：以批次隔离打印回执、延迟任务和清空操作。 */
 (() => {
     'use strict';
@@ -20,7 +55,7 @@
     function state(live) {
         if (!states.has(live)) {
             const value = { active: null, latest: null, event: null, epoch: 0,
-                transition: false, retired: new Set(), timers: new Set() };
+                transition: false, retired: new Set(), batches: new Set(), timers: new Set() };
             states.set(live, value);
             echoes.set(live.echo, value);
         }
@@ -29,6 +64,15 @@
 
     // 同一运行内只接受递增代次，跨运行保留退休集合以拒绝迟到消息。
     function accept(value, meta) {
+        if (meta && meta.run_id === undefined && typeof meta.frontend_id === 'string' &&
+            typeof meta.batch_id === 'string' && typeof meta.message_id === 'string') {
+            if (value.batches.has(meta.batch_id)) return false;
+            value.batches.add(meta.batch_id);
+            if (value.batches.size > 1024) value.batches.delete(value.batches.values().next().value);
+            if (value.latest?.run_id) value.retired.add(value.latest.run_id);
+            value.latest = copy(meta);
+            return true;
+        }
         if (!meta || typeof meta.run_id !== 'string' ||
             typeof meta.batch_id !== 'string' || typeof meta.message_id !== 'string' ||
             !Number.isSafeInteger(meta.generation) || meta.generation < 0 ||

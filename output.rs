@@ -16,6 +16,22 @@ pub(crate) fn inject_html(source: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn browser_output_cards_keep_channels_and_history_independent() {
+        let output = std::process::Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/output_card_bridge.test.cjs"
+            ))
+            .output()
+            .expect("输出卡片通道验证需要 Node.js");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[cfg(feature = "external-resource-tests")]
     #[test]
     fn browser_bridge_handles_preemption_and_stale_callbacks() {

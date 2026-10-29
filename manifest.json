@@ -11,6 +11,7 @@
   "abi_version": 2,
   "capabilities": [
     "frontend",
+    "output_cards_v1",
     "web",
     "ui"
   ]

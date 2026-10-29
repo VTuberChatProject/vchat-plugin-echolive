@@ -65,6 +65,22 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
     if status != STATUS_OK {
         ctx.log("EchoLive 配置表单注册失败");
     }
+    if status == STATUS_OK {
+        let outputs = resource_root(config).map(|root| ["live", "history"].into_iter()
+            .filter(|card| root.join(format!("{card}.html")).is_file())
+            .map(|card| json!({"card_id":card,"receipt_mode":if card == "history" {"accepted"} else {"completed"}})).collect::<Vec<_>>()).unwrap_or_default();
+        let registration = proto::HostRequest {
+            service: "frontend.register".into(),
+            payload_json: json!({"version":2,"outputs":outputs})
+                .to_string()
+                .into_bytes(),
+            ..Default::default()
+        };
+        if let Err(error) = unsafe { vchat_plugin_api::sdk::call_host(&ctx.host, &registration) } {
+            ctx.log(&format!("EchoLive 输出卡片注册失败: {error}"));
+            return STATUS_ERROR;
+        }
+    }
     status
 }
 

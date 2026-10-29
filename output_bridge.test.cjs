@@ -174,5 +174,18 @@ assert.equal(clearedTrack.destroyed, true);
 assert.equal(replaced.printer.subTrack.size, 0);
 assert.deepEqual(replaced.output, outputBeforeClear);
 assert.equal(replaced.portal.sent.length, sentBeforeClear);
+
+// 普通按卡消息携带完整身份，去重批次后仍只发出一次完成回执。
+const ordinary = {frontend_id:'card:live',plugin_id:'builtin.echolive',card_id:'live',
+    message_id:'ordinary-message',batch_id:'ordinary-batch'};
+portal.getDataPortal({action:'message_data',data:{username:'普通',messages:[{message:'定向'}],vchat:ordinary}});
+finish(echo);
+assert.equal(output,'定向');
+assert.equal(portal.sent.at(-1).data.vchat.card_id,'live');
+assert.equal(portal.sent.at(-1).data.vchat.batch_id,'ordinary-batch');
+const ordinaryCount = portal.sent.length;
+portal.getDataPortal({action:'message_data',data:{username:'重复',messages:[{message:'重复'}],vchat:ordinary}});
+assert.equal(portal.sent.length,ordinaryCount);
+assert.equal(output,'定向');
 `, context);
 console.log('Echo 剧本兼容层验证通过');

@@ -263,8 +263,9 @@ fn write_http_response(
         no_store = true;
     }
     if !plugin_media
-        && relative == "live.html"
-        && ctx.config["echolive_resource"]["capabilities"]["bridge"] == true
+        && (relative == "history.html"
+            || (relative == "live.html"
+                && ctx.config["echolive_resource"]["capabilities"]["bridge"] == true))
     {
         let source = match String::from_utf8(body) {
             Ok(source) => source,

@@ -18,6 +18,10 @@ python Tools/package.py --profile release
 
 在插件设置中选择 Echo-Live 文件夹、导入 ZIP 或下载官方资源。配置按资源身份保存，支持官方 data_version 1～17。Live、History、媒体与 WebSocket 路由由启用的插件注册；配置错误通过宿主日志和设置表单报告。单元测试从已跟踪的官方历史夹具生成离线资源。实际 Echo 打印器回归使用 `VCHAT_ECHOLIVE_RESOURCE_ROOT` 显式提供资源，再执行 `cargo test --locked --features external-resource-tests`。
 
+## 消息流连接
+
+Live 与 History 通过 `output_cards_v1` 声明独立端点，按画布连线接收消息。Live 等待打印完成确认；History 由宿主在后台独立归档，页面打开及重连时读取专属记录。页面使用独立 WebSocket 和 BroadcastChannel 通道；预览与清屏携带对应卡片身份。
+
 ## 迁移来源
 
 从 `VTuberChatProject/VChatRev` 提交 `985c2a1ae3717f6918cb6030b6dd755d01edff9a` 提取 `Plugins/EchoLiveConfig` 相关历史。路径重映射后的提交保留原作者、日期和说明。许可证见 [LICENSE](LICENSE)。
