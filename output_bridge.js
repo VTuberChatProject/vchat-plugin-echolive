@@ -24,7 +24,16 @@
         EchoLiveBroadcastHistory.prototype.getDataHistory = function(packet, listener = this) {
             if (packet.action === 'message_data') {
                 for (const item of packet.data?.messages || []) {
-                    listener.echoLiveHistory.send({ username: packet.data?.username, message:item.message });
+                    receive.call(this, {
+                        action: 'echo_printing',
+                        data: {
+                            username: packet.data?.username,
+                            message: typeof EchoLiveTools !== 'undefined' &&
+                                typeof EchoLiveTools.getMessagePlainText === 'function'
+                                ? EchoLiveTools.getMessagePlainText(item.message)
+                                : item.message
+                        }
+                    }, listener);
                 }
                 return;
             }

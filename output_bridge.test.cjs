@@ -13,6 +13,7 @@ const context = {
     setInterval: (fn, delay, ...args) => { const id = ++timerId; timers.set(id, () => fn(...args)); return id; },
     clearInterval: id => timers.delete(id),
     speechSynthesis: { cancel() {} },
+    location: { pathname: '/history.html' },
 };
 context.window = context;
 vm.createContext(context);
@@ -23,6 +24,22 @@ vm.runInContext(`
 class EchoLiveBroadcast {
     static API_NAME_ECHO_PRINTING = 'echo_printing';
     static API_NAME_ECHO_STATE_UPDATE = 'echo_state_update';
+}
+const EchoLiveTools = {
+    getMessagePlainText(message) {
+        if (typeof message === 'string') return message;
+        if (Array.isArray(message)) return message.map(item => item.text || '').join('');
+        return message?.text || '';
+    }
+};
+class EchoLiveHistory {
+    constructor() { this.messages = []; }
+    send(message) { this.messages.push(message); }
+}
+class EchoLiveBroadcastHistory {
+    getDataHistory(packet, listener = this) {
+        if (packet.action === 'echo_printing') listener.echoLiveHistory.send(packet.data);
+    }
 }
 class EchoLiveBroadcastPortal {
     constructor(live) { this.echolive = live; this.sent = []; }
@@ -44,6 +61,17 @@ class EchoLive {
 }
 `, context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'output_bridge.js'), 'utf8'), context);
+vm.runInContext(`
+const history = new EchoLiveHistory();
+const historyBroadcast = new EchoLiveBroadcastHistory();
+historyBroadcast.echoLiveHistory = history;
+historyBroadcast.getDataHistory({ action: 'message_data', data: { username: '历史角色',
+    messages: [{ message: [{ text: '第' }, { text: '一条' }] }, { message: '第二条' }] } });
+assert.deepEqual(history.messages, [
+    { username: '历史角色', message: '第一条' },
+    { username: '历史角色', message: '第二条' }
+]);
+`, context);
 vm.runInContext(`
 const echo = new Echo();
 let echoTrack = {};
