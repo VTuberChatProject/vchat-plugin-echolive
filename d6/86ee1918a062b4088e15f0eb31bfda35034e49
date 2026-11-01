@@ -1,0 +1,14 @@
+management.rs
+  h_8e6780fc7b4bb1 166,189-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d686ee1918a062b4088e15f0eb31bfda35034e49",
+  "prompts": {},
+  "humans": {
+    "h_8e6780fc7b4bb1": {
+      "author": "AuraElicase <auraelicase@outlook.com>"
+    }
+  }
+}
