@@ -48,6 +48,16 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
                 kind: "echolive_resources".into(),
                 value_json: json!({"resource":config.get("echolive_resource"),"task":ctx.resource_task,"assets_root":ctx.assets}).to_string(),
                 ..Default::default()
+            }, proto::UiField {
+                id: "echolive_profiles".into(),
+                label: "EchoLive 配置档案".into(),
+                kind: "echolive_profiles".into(),
+                value_json: config
+                    .get("echolive_profiles")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"version":1,"current_id":"legacy","profiles":[{"id":"legacy","name":"当前配置","values":values}]}))
+                    .to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         }),
@@ -123,7 +133,52 @@ pub(crate) fn validate_config(ctx: &Context, candidate: &Value) -> Result<Value,
     } else {
         crate::validation::validate_overrides(&schema, overrides)?;
     }
+    validate_user_profiles(candidate.get("echolive_profiles"), &schema)?;
     Ok(schema)
+}
+
+/// 验证 UI 档案结构与覆盖值，保留旧版按资源 ID 索引的内部档案格式。
+fn validate_user_profiles(profiles: Option<&Value>, schema: &Value) -> Result<(), String> {
+    let Some(profiles) = profiles else {
+        return Ok(());
+    };
+    if !profiles.is_object() {
+        return Err("EchoLive 配置档案格式无效".into());
+    }
+    if profiles.get("version").is_none() {
+        return Ok(());
+    }
+    if profiles["version"].as_u64() != Some(1) {
+        return Err("EchoLive 配置档案版本不兼容".into());
+    }
+    let entries = profiles["profiles"]
+        .as_array()
+        .ok_or("EchoLive 配置档案列表无效")?;
+    let current = profiles["current_id"]
+        .as_str()
+        .ok_or("EchoLive 当前配置档案无效")?;
+    let mut ids = std::collections::HashSet::new();
+    for profile in entries {
+        let id = profile["id"]
+            .as_str()
+            .filter(|id| !id.trim().is_empty())
+            .ok_or("EchoLive 配置档案标识无效")?;
+        if !ids.insert(id) {
+            return Err("EchoLive 配置档案标识重复".into());
+        }
+        if profile["name"]
+            .as_str()
+            .is_none_or(|name| name.trim().is_empty())
+        {
+            return Err("EchoLive 配置档案名称无效".into());
+        }
+        let values = profile.get("values").ok_or("EchoLive 配置档案缺少配置值")?;
+        crate::validation::validate_overrides(schema, values)?;
+    }
+    if !ids.contains(current) {
+        return Err("EchoLive 当前配置档案不存在".into());
+    }
+    Ok(())
 }
 
 /// 当前资源以最新已确认值为准；切换资源时优先使用目标档案的历史覆盖。
@@ -133,7 +188,11 @@ fn previous_overrides<'a>(current: &'a Value, candidate: &Value) -> Option<&'a V
         return current.get("echolive_config");
     }
     target
-        .and_then(|id| current["echolive_profiles"].get(id))
+        .and_then(|id| {
+            current["echolive_resource_profiles"]
+                .get(id)
+                .or_else(|| current["echolive_profiles"].get(id))
+        })
         .and_then(|profile| profile.get("overrides"))
         .or_else(|| current.get("echolive_config"))
 }
@@ -159,7 +218,7 @@ mod tests {
     fn current_resource_validation_uses_latest_overrides_before_profile_snapshot() {
         let current = json!({"echolive_resource":{"id":"a"},
             "echolive_config":{"old.field":"最近保存"},
-            "echolive_profiles":{"a":{"overrides":{"old.field":"旧快照"}},
+            "echolive_resource_profiles":{"a":{"overrides":{"old.field":"旧快照"}},
                 "b":{"overrides":{"old.field":"另一目录"}}}});
         let schema = json!({"fields":[]});
         let previous = previous_overrides(&current, &current).unwrap();
@@ -174,5 +233,20 @@ mod tests {
             previous_overrides(&current, &switched).unwrap()["old.field"],
             "另一目录"
         );
+    }
+
+    #[test]
+    fn profile_contract_requires_valid_selected_entry_and_field_values() {
+        let schema = crate::schema::load_schema(&crate::test_resources::root()).unwrap();
+        let valid = json!({"version":1,"current_id":"one","profiles":[
+            {"id":"one","name":"直播","values":{"echo.print_speed":47}}
+        ]});
+        validate_user_profiles(Some(&valid), &schema).unwrap();
+        let invalid = json!({"version":1,"current_id":"one","profiles":[
+            {"id":"one","name":"直播","values":{"echo.print_speed":"快"}}
+        ]});
+        assert!(validate_user_profiles(Some(&invalid), &schema).is_err());
+        let missing = json!({"version":1,"current_id":"missing","profiles":[]});
+        assert!(validate_user_profiles(Some(&missing), &schema).is_err());
     }
 }

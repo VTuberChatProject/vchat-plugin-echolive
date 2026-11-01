@@ -281,12 +281,13 @@ process.stdout.write(JSON.stringify(context.result));
 }
 
 #[test]
-fn generated_script_preserves_source_and_applies_all_four_layers() {
+fn generated_script_replaces_source_with_complete_configuration() {
     let schema = load_schema(&asset_root()).unwrap();
     let source = "// 用户资源注释\nconst config = {global:{theme:'资源主题'},echo:{print_speed:45},customKey:'保留'};\nglobalThis.custom = '自定义脚本';";
     let overrides = json!({"echo.print_speed":60,"global.theme":"用户主题"});
     let script = generate_config_with(source, Some(&schema), &overrides);
-    assert!(script.starts_with(source));
+    assert!(!script.contains("globalThis.custom"));
+    assert!(script.starts_with("const config = {"));
     for (protocol, host, expected) in [
         ("http:", "localhost:38600", "ws://localhost:38600/ws"),
         ("https:", "[::1]:4430", "wss://[::1]:4430/ws"),
@@ -297,7 +298,6 @@ fn generated_script_preserves_source_and_applies_all_four_layers() {
         assert_eq!(config["global"]["language"], "zho-Hans");
         assert_eq!(config["echo"]["print_speed"], 60);
         assert_eq!(config["customKey"], "保留");
-        assert_eq!(result["custom"], "自定义脚本");
         assert_eq!(config["echolive"]["broadcast"]["websocket_url"], expected);
         assert_eq!(config["editor"]["websocket"]["url"], expected);
         assert_eq!(config["editor"]["websocket"]["auto_url"], false);

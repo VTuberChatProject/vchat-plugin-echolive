@@ -1,4 +1,4 @@
-//! 保留原始脚本，并按官方默认值、资源值、用户值和宿主连接配置生成覆盖。
+//! 按官方默认值、资源值、用户值和宿主连接配置生成完整运行时配置输出。
 use serde_json::{Value, json};
 
 /// 保持公开接口兼容，调用方可继续只提供原始配置脚本。
@@ -6,7 +6,7 @@ pub fn generate_config(source: &str) -> String {
     generate_config_with(source, None, &json!({}))
 }
 
-/// HTTP 和配置生成操作共用同一覆盖算法；原始脚本保持逐字节前缀。
+/// HTTP 和配置生成操作共用同一覆盖算法；输出使用完整配置声明替换原始脚本。
 pub(crate) fn generate_config_with(
     source: &str,
     schema: Option<&Value>,
@@ -60,20 +60,27 @@ pub(crate) fn generate_config_with(
         })
         .map(|(path, value)| (path.clone(), value.clone()))
         .collect::<serde_json::Map<_, _>>();
-    let mut result = String::with_capacity(source.len() + 3_000);
-    result.push_str(source);
-    if !source.ends_with('\n') {
-        result.push('\n');
+    let mut config = match crate::schema::parse_declaration(source, "config") {
+        Ok(value) if value.is_object() => value,
+        _ => return source.to_owned(),
+    };
+    for (path, value) in &defaults {
+        set_path(&mut config, path, value.clone(), true);
     }
+    for (path, value) in &allowed {
+        set_path(&mut config, path, value.clone(), false);
+    }
+    for (path, value) in &managed {
+        set_path(&mut config, path, value.clone(), false);
+    }
+    // 宿主连接地址依赖当前页面位置，保留极小的运行时赋值段；其它配置已完整替换。
+    let json = serde_json::to_string_pretty(&config).expect("JSON 配置序列化");
+    let mut result = format!("const config = {json};\n");
+    result.push_str("// VChat 运行时连接配置。\nfunction InjectConfig() {\n");
+    result.push_str("const managed = ");
+    result.push_str(&serde_json::to_string(&managed).expect("JSON 宿主管理配置序列化"));
     result.push_str(";\n");
-    result.push_str("// VChat 配置覆盖；原始 config.js 保持完整。\nfunction InjectConfig() {\n");
-    result.push_str("const defaults = ");
-    result.push_str(&serde_json::to_string(&defaults).expect("JSON 默认值序列化"));
-    result.push_str(";\nconst overrides = ");
-    result.push_str(&serde_json::to_string(&allowed).expect("JSON 用户配置序列化"));
-    result.push_str(";\nconst managed = ");
-    result.push_str(&serde_json::to_string(&managed).expect("JSON 宿主配置序列化"));
-    result.push_str(r#";
+    result.push_str(r#"
     const own = (node, key) => Object.prototype.hasOwnProperty.call(node, key);
     const set = (path, value, onlyMissing = false) => {
         const keys = path.split('.');
@@ -86,14 +93,16 @@ pub(crate) fn generate_config_with(
         const key = keys[keys.length - 1];
         if (!onlyMissing || !own(node, key)) node[key] = value;
     };
-    // 原始资源已执行；仅补齐缺失值，再应用显式用户覆盖。
-    for (const [path, value] of Object.entries(defaults)) set(path, value, true);
-    for (const [path, value] of Object.entries(overrides)) set(path, value);
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsAddress = `${protocol}//${window.location.host}/ws`;
     const preview = (window.location.search || '').slice(1).split('&').includes('preview=1');
-    // 连接覆盖仅选择当前版本定义中的路径，保持历史配置结构与 data_version。
+    const hasPath = (path) => {
+        let node = config;
+        for (const key of path.split('.')) { if (!own(node, key)) return false; node = node[key]; }
+        return true;
+    };
     for (const [path, value] of Object.entries(managed)) {
+        if (!hasPath(path)) continue;
         const address = path === 'editor.websocket.url' ? wsAddress : wsAddress + (preview ? '?preview=1' : '');
         const isAddress = ['echolive.websocket_url', 'echolive.broadcast.websocket_url', 'editor.websocket.url'].includes(path);
         set(path, isAddress ? address : value);
@@ -102,6 +111,23 @@ pub(crate) fn generate_config_with(
 InjectConfig();
 "#);
     result
+}
+
+fn set_path(root: &mut Value, path: &str, value: Value, only_missing: bool) {
+    let mut node = root;
+    let mut parts = path.split('.').peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            if !only_missing || !node.get(part).is_some() {
+                node[part] = value;
+            }
+            return;
+        }
+        if !node.get(part).is_some_and(Value::is_object) {
+            node[part] = Value::Object(Default::default());
+        }
+        node = &mut node[part];
+    }
 }
 
 /// 独立公开接口没有目录定义时，只识别已知版本并覆盖资源实际声明的宿主字段。

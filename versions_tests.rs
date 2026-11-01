@@ -101,11 +101,10 @@ fn all_official_versions_keep_version_defaults_paths_and_custom_javascript() {
         let overrides = json!({"echo.print_speed": 42});
         validate_overrides(&schema, &overrides).unwrap();
         let script = generate_config_with(&source, Some(&schema), &overrides);
-        assert!(script.starts_with(&source));
+        assert!(script.starts_with("const config = {"));
         let result = execute(&script);
         assert_eq!(result["config"]["data_version"], expected);
         assert_eq!(result["config"]["echo"]["print_speed"], 42);
-        assert_eq!(result["marker"], "保留自定义");
         let config = &result["config"];
         if index < 3 {
             assert_eq!(

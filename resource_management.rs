@@ -64,9 +64,15 @@ fn candidate(current: &Value, resource: Value) -> Result<Value, String> {
     let schema = crate::schema::load_schema(std::path::Path::new(root))?;
     let mut next = current.clone();
     let mut profiles = current
-        .get("echolive_profiles")
+        .get("echolive_resource_profiles")
         .filter(|v| v.is_object())
         .cloned()
+        .or_else(|| {
+            current
+                .get("echolive_profiles")
+                .filter(|v| v.get("version").is_none())
+                .cloned()
+        })
         .unwrap_or_else(|| json!({}));
     let existing = current
         .get("echolive_config")
@@ -82,7 +88,7 @@ fn candidate(current: &Value, resource: Value) -> Result<Value, String> {
     next["echolive_resource"] = resource.clone();
     next["echolive_config"] = overrides.clone();
     profiles[id] = json!({"resource":resource,"overrides":overrides});
-    next["echolive_profiles"] = profiles;
+    next["echolive_resource_profiles"] = profiles;
     Ok(next)
 }
 
@@ -109,7 +115,7 @@ mod tests {
         let restored = candidate(&second, a).unwrap();
         assert_eq!(restored["echolive_config"]["echo.print_speed"], 47);
         assert_eq!(
-            restored["echolive_profiles"]["b"]["overrides"]["echo.print_speed"],
+            restored["echolive_resource_profiles"]["b"]["overrides"]["echo.print_speed"],
             80
         );
         let restored_b = candidate(&restored, b).unwrap();
