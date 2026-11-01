@@ -163,7 +163,7 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
         service: "ui.register".into(),
         ui: Some(proto::UiContribution {
             commands: vec![
-                proto::UiCommand { id: "resource.download".into(), label: "下载最新资源".into(), icon: "download".into(), tooltip: "下载 EchoLive 最新资源".into(), enabled: true, selected: false },
+                proto::UiCommand { id: "resource.download".into(), label: "下载 Echo Live".into(), icon: "download".into(), tooltip: "下载 Echo Live 最新资源".into(), enabled: true, selected: false },
                 proto::UiCommand { id: "resource.cancel".into(), label: "取消资源任务".into(), icon: "x".into(), tooltip: "取消当前 EchoLive 资源任务".into(), enabled: false, selected: false },
             ],
             output_cards: resource_root(config).map(|root| crate::output_cards::cards().into_iter()
@@ -186,10 +186,10 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
                     {"id":"resource.source","label":"资源来源","kind":"readonly","value_json":config["echolive_resource"]["source"].to_string()},
                     {"id":"resource.status","label":"任务状态","kind":"readonly","value_json":ctx.resource_task["stage"].to_string(),"tooltip":ctx.resource_task["error"]},
                     {"id":"resource.progress","label":"任务进度","kind":"readonly","value_json":if ctx.resource_task["total"].as_u64().is_some_and(|total|total>0) {format!("{} / {} 字节",ctx.resource_task["bytes"].as_u64().unwrap_or(0),ctx.resource_task["total"].as_u64().unwrap_or(0))} else {"准备中".into()}},
-                    {"id":"resource.open","label":"打开资源文件夹","kind":"open_path","value_json":config["echolive_resource"]["path"].to_string()},
-                    {"id":"resource.folder","label":"选择资源文件夹","kind":"file_action","schema_json":{"command_id":"resource.folder","dialog":"folder"}},
-                    {"id":"resource.import","label":"导入资源 ZIP","kind":"file_action","schema_json":{"command_id":"resource.import","dialog":"zip"}},
-                    {"id":"resource.download","label":"下载最新资源","kind":"action","command_id":"resource.download","enabled":ctx.resource_task["busy"]!=true,"tooltip":"下载并启用最新 EchoLive 资源"},
+                    {"id":"resource.open","label":"打开 Echo Live 目录","kind":"open_path","value_json":config["echolive_resource"]["path"].to_string()},
+                    {"id":"resource.folder","label":"选择文件夹","kind":"file_action","schema_json":{"command_id":"resource.folder","dialog":"folder"}},
+                    {"id":"resource.import","label":"加载 ZIP","kind":"file_action","schema_json":{"command_id":"resource.import","dialog":"zip"}},
+                    {"id":"resource.download","label":"下载 Echo Live","kind":"action","command_id":"resource.download","enabled":ctx.resource_task["busy"]!=true,"tooltip":"下载并启用最新 Echo Live 资源"},
                     {"id":"resource.cancel","label":"取消资源任务","kind":"action","command_id":"resource.cancel","enabled":ctx.resource_task["busy"]==true,"tooltip":"取消当前资源准备任务"}
                 ]}).to_string(),
                 ..Default::default()
