@@ -205,7 +205,6 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
                     .to_string(),
                 ..Default::default()
             }],
-            ..Default::default()
         }),
         ..Default::default()
     };
