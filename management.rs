@@ -133,12 +133,20 @@ pub(crate) fn validate_config(ctx: &Context, candidate: &Value) -> Result<Value,
     } else {
         crate::validation::validate_overrides(&schema, overrides)?;
     }
-    validate_user_profiles(candidate.get("echolive_profiles"), &schema)?;
+    validate_user_profiles(
+        candidate.get("echolive_profiles"),
+        ctx.config.get("echolive_profiles"),
+        &schema,
+    )?;
     Ok(schema)
 }
 
 /// 验证 UI 档案结构与覆盖值，保留旧版按资源 ID 索引的内部档案格式。
-fn validate_user_profiles(profiles: Option<&Value>, schema: &Value) -> Result<(), String> {
+fn validate_user_profiles(
+    profiles: Option<&Value>,
+    previous: Option<&Value>,
+    schema: &Value,
+) -> Result<(), String> {
     let Some(profiles) = profiles else {
         return Ok(());
     };
@@ -173,7 +181,14 @@ fn validate_user_profiles(profiles: Option<&Value>, schema: &Value) -> Result<()
             return Err("EchoLive 配置档案名称无效".into());
         }
         let values = profile.get("values").ok_or("EchoLive 配置档案缺少配置值")?;
-        crate::validation::validate_overrides(schema, values)?;
+        let previous_values = previous
+            .and_then(|previous| previous["profiles"].as_array())
+            .into_iter()
+            .flatten()
+            .find(|old| old["id"].as_str() == Some(id))
+            .and_then(|old| old.get("values"))
+            .unwrap_or(&Value::Null);
+        crate::validation::validate_overrides_preserving(schema, values, previous_values)?;
     }
     if !ids.contains(current) {
         return Err("EchoLive 当前配置档案不存在".into());
@@ -241,12 +256,16 @@ mod tests {
         let valid = json!({"version":1,"current_id":"one","profiles":[
             {"id":"one","name":"直播","values":{"echo.print_speed":47}}
         ]});
-        validate_user_profiles(Some(&valid), &schema).unwrap();
+        validate_user_profiles(Some(&valid), None, &schema).unwrap();
         let invalid = json!({"version":1,"current_id":"one","profiles":[
             {"id":"one","name":"直播","values":{"echo.print_speed":"快"}}
         ]});
-        assert!(validate_user_profiles(Some(&invalid), &schema).is_err());
+        assert!(validate_user_profiles(Some(&invalid), None, &schema).is_err());
         let missing = json!({"version":1,"current_id":"missing","profiles":[]});
-        assert!(validate_user_profiles(Some(&missing), &schema).is_err());
+        assert!(validate_user_profiles(Some(&missing), None, &schema).is_err());
+        let historical = json!({"version":1,"current_id":"one","profiles":[
+            {"id":"one","name":"直播","values":{"retired.option":"kept"}}
+        ]});
+        validate_user_profiles(Some(&historical), Some(&historical), &schema).unwrap();
     }
 }
