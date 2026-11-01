@@ -14,9 +14,14 @@ function page(card) {
     vm.createContext(context);
     vm.runInContext(`
         class EchoLiveBroadcastHistory {
-            constructor() { this.received = []; this.echoLiveHistory = {
-                send: value => this.received.push(value), clear: () => this.received.length = 0}; }
-            getDataHistory(packet) { this.fallback = packet.action; }
+            constructor() { this.echoLiveHistory = {
+                received: [], send(value) { this.received.push(value); },
+                clear() { this.received.length = 0; }}; }
+            getDataHistory(packet, listener = this) {
+                if (packet.action === 'echo_printing') listener.echoLiveHistory.send({
+                    username: packet.data?.username, message: packet.data?.message});
+                else this.fallback = packet.action;
+            }
         }
     `,context);
     vm.runInContext(source,context);
@@ -33,8 +38,8 @@ assert.equal(vm.runInContext("new BroadcastChannel('Echo-Live').name",history),'
 vm.runInContext(`
     const receiver = new EchoLiveBroadcastHistory();
     receiver.getDataHistory({action:'message_data',data:{username:'角色',messages:[{message:'甲'},{message:'乙'}]}});
-    if (receiver.received.length !== 2 || receiver.received[1].message !== '乙') throw Error('history conversion');
+    if (receiver.echoLiveHistory.received.length !== 2 || receiver.echoLiveHistory.received[1].message !== '乙') throw Error('history conversion');
     receiver.getDataHistory({action:'vchat_output_clear'});
-    if (receiver.received.length) throw Error('history clear');
+    if (receiver.echoLiveHistory.received.length) throw Error('history clear');
 `,history);
 console.log('EchoLive 输出卡片通道验证通过');
