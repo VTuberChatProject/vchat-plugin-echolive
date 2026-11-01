@@ -92,17 +92,29 @@ pub(crate) fn load_schema(root: &Path) -> Result<Value, String> {
         let label = localized
             .and_then(|v| v["_title"].as_str())
             .or_else(|| definition["label"].as_str())
-            .unwrap_or(path);
+            .unwrap_or("高级配置项");
         let managed = managed_value(path);
         let value = managed
             .clone()
             .unwrap_or_else(|| path_value(&resource, path).unwrap_or(default).clone());
+        let group = path.split('.').next().unwrap_or("advanced");
+        let group_label = match group {
+            "global" => "全局",
+            "echo" => "对话显示",
+            "character" => "角色",
+            "editor" => "编辑器",
+            "accessibility" => "无障碍",
+            _ => "高级",
+        };
         let mut field = json!({
-            "path": path, "label": label, "group": path.split('.').next().unwrap_or("advanced"),
+            "path": path, "label": label, "group": group, "group_label": group_label,
             "kind": kind, "default": default, "value": value,
             "conditions": definition.get("conditions").cloned().unwrap_or_else(|| json!([])),
             "read_only": managed.is_some(), "from": definition.get("from"),
         });
+        if let Some(description) = localized.and_then(|v| v["_description"].as_str()) {
+            field["description"] = json!(description);
+        }
         for (upstream, name) in [("min", "minimum"), ("max", "maximum"), ("step", "step")] {
             if let Some(value) = definition["attribute"].get(upstream) {
                 field[name] = value.clone();
@@ -115,6 +127,23 @@ pub(crate) fn load_schema(root: &Path) -> Result<Value, String> {
             field["input_type"] = input_type.clone();
         } else if path.ends_with("_color") {
             field["input_type"] = json!("color");
+        }
+        if let Some(options) = definition["attribute"]["datalist"].as_array() {
+            let options = options
+                .iter()
+                .map(|option| {
+                    let value = option["value"]
+                        .as_str()
+                        .or_else(|| option.as_str())
+                        .unwrap_or_default();
+                    let option_label = option["label"]
+                        .as_str()
+                        .or_else(|| option["name"].as_str())
+                        .unwrap_or(value);
+                    json!({"value":value,"label":option_label})
+                })
+                .collect::<Vec<_>>();
+            field["options"] = json!(options);
         }
         crate::validation::validate_value(&field, default)?;
         fields.push(field);

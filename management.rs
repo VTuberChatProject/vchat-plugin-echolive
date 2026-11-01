@@ -23,6 +23,136 @@ pub(crate) fn resource_root(config: &Value) -> Option<&Path> {
     config["echolive_resource"]["path"].as_str().map(Path::new)
 }
 
+/// 将通用 UI 命令映射到资源任务协议，宿主只负责转发命令。
+pub(crate) fn command(ctx: &mut Context, payload: &Value) -> Result<Value, String> {
+    let command = payload["command_id"].as_str().ok_or("缺少插件操作标识")?;
+    let input = &payload["payload"];
+    if command.starts_with("profile.") {
+        return profile_command(ctx, command, input);
+    }
+    let (action, path) = match command {
+        "resource.download" => ("download", Value::Null),
+        "resource.folder" => ("folder", input["path"].clone()),
+        "resource.import" => ("import", input["path"].clone()),
+        "resource.cancel" => ("cancel", Value::Null),
+        _ => return Err("未知 EchoLive 插件操作".into()),
+    };
+    Ok(json!({"host_task":{"kind":"plugin_resource","action":action,"path":path}}))
+}
+
+/// 档案命令在插件内完成 JSON 校验，成功后返回宿主事务可持久化的完整设置。
+fn profile_command(ctx: &Context, command: &str, input: &Value) -> Result<Value, String> {
+    let mut settings = ctx.config.clone();
+    let schema = &ctx.schema;
+    let mut profiles = settings.get("echolive_profiles").cloned().unwrap_or_else(|| json!({
+        "version":1,"current_id":"legacy","profiles":[{"id":"legacy","name":"当前配置","values":settings.get("echolive_config").cloned().unwrap_or_else(||json!({}))}]
+    }));
+    if profiles["version"].as_u64() != Some(1) || !profiles["profiles"].is_array() {
+        return Err("EchoLive 配置档案格式无效".into());
+    }
+    match command {
+        "profile.select" => {
+            let selected_id = input["id"].as_str().ok_or("未选择配置档案")?;
+            let profile_values = profiles["profiles"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|profile| profile["id"].as_str() == Some(selected_id))
+                .map(|profile| profile["values"].clone())
+                .ok_or("所选配置档案不存在")?;
+            crate::validation::validate_overrides(schema, &profile_values)?;
+            profiles["current_id"] = json!(selected_id);
+            settings["echolive_config"] = profile_values;
+        }
+        "profile.save" => {
+            let name = input["name"]
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .ok_or("请输入配置档案名称")?;
+            let current = profiles["current_id"]
+                .as_str()
+                .ok_or("当前配置档案无效")?
+                .to_owned();
+            let values = input
+                .get("values")
+                .filter(|v| v.is_object())
+                .ok_or("配置档案值必须为对象")?;
+            crate::validation::validate_overrides(schema, values)?;
+            let list = profiles["profiles"]
+                .as_array_mut()
+                .ok_or("配置档案列表无效")?;
+            let existing = list.iter_mut().find(|p| p["id"].as_str() == Some(&current));
+            if let Some(profile) = existing {
+                profile["name"] = json!(name);
+                profile["values"] = values.clone();
+            } else {
+                list.push(json!({"id":current,"name":name,"values":values}));
+            }
+            settings["echolive_config"] = values.clone();
+        }
+        "profile.import" => {
+            let path = input["path"].as_str().ok_or("未选择 JSON 档案")?;
+            let bytes = std::fs::read(path).map_err(|e| format!("读取配置档案失败: {e}"))?;
+            let imported: Value =
+                serde_json::from_slice(&bytes).map_err(|e| format!("JSON 档案格式错误: {e}"))?;
+            if imported["version"].as_u64() != Some(1)
+                || imported["name"]
+                    .as_str()
+                    .is_none_or(|n| n.trim().is_empty())
+                || !imported["values"].is_object()
+            {
+                return Err("JSON 档案必须包含 version=1、name 和对象 values".into());
+            }
+            crate::validation::validate_overrides(schema, &imported["values"])?;
+            let base = imported["name"].as_str().unwrap().to_owned();
+            let list = profiles["profiles"]
+                .as_array_mut()
+                .ok_or("配置档案列表无效")?;
+            let mut name = base.clone();
+            let mut suffix = 2;
+            while list.iter().any(|p| p["name"].as_str() == Some(&name)) {
+                name = format!("{base} ({suffix})");
+                suffix += 1;
+            }
+            let id = format!("imported-{}", list.len() + 1);
+            let mut id = id;
+            let mut id_suffix = 2;
+            while list
+                .iter()
+                .any(|profile| profile["id"].as_str() == Some(&id))
+            {
+                id = format!("imported-{}-{id_suffix}", list.len() + 1);
+                id_suffix += 1;
+            }
+            list.push(json!({"id":id,"name":name,"values":imported["values"]}));
+            profiles["current_id"] = json!(id);
+            settings["echolive_config"] = imported["values"].clone();
+        }
+        "profile.export" => {
+            let path = input["path"].as_str().ok_or("未选择导出位置")?;
+            let current = profiles["current_id"].as_str().ok_or("当前配置档案无效")?;
+            let profile = profiles["profiles"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|p| p["id"].as_str() == Some(current))
+                .ok_or("当前配置档案不存在")?;
+            let document =
+                json!({"version":1,"name":profile["name"],"values":settings["echolive_config"]});
+            std::fs::write(
+                path,
+                serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| format!("导出配置档案失败: {e}"))?;
+            return Ok(json!({"notice":"配置档案已导出"}));
+        }
+        _ => return Err("未知配置档案操作".into()),
+    }
+    settings["echolive_profiles"] = profiles;
+    Ok(json!({"settings":settings}))
+}
+
 /// 表单值只携带用户覆盖，配置定义由独立协议字段传输。
 pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 {
     let values = config
@@ -32,26 +162,42 @@ pub(crate) fn register_ui(ctx: &Context, config: &Value, schema: &Value) -> i32 
     let request = proto::HostRequest {
         service: "ui.register".into(),
         ui: Some(proto::UiContribution {
+            commands: vec![
+                proto::UiCommand { id: "resource.download".into(), label: "下载最新资源".into(), icon: "download".into(), tooltip: "下载 EchoLive 最新资源".into(), enabled: true, selected: false },
+                proto::UiCommand { id: "resource.cancel".into(), label: "取消资源任务".into(), icon: "x".into(), tooltip: "取消当前 EchoLive 资源任务".into(), enabled: false, selected: false },
+            ],
             output_cards: resource_root(config).map(|root| crate::output_cards::cards().into_iter()
                 .filter(|card| root.join(if card.id == "history" { "history.html" } else { "live.html" }).is_file())
                 .collect()).unwrap_or_default(),
             fields: vec![proto::UiField {
                 id: "echolive_config".into(),
                 label: "EchoLive 配置".into(),
-                kind: "echolive_config".into(),
+                kind: "form".into(),
                 value_json: values.to_string(),
                 schema_json: schema.to_string(),
                 ..Default::default()
             }, proto::UiField {
                 id: "echolive_resource".into(),
                 label: "EchoLive 资源".into(),
-                kind: "echolive_resources".into(),
-                value_json: json!({"resource":config.get("echolive_resource"),"task":ctx.resource_task,"assets_root":ctx.assets}).to_string(),
+                kind: "group".into(),
+                schema_json: json!({"items":[
+                    {"id":"resource.path","label":"资源目录","kind":"readonly","value_json":config["echolive_resource"]["path"].to_string(),"tooltip":"当前已启用的 EchoLive 资源目录"},
+                    {"id":"resource.version","label":"资源版本","kind":"readonly","value_json":config["echolive_resource"]["version"].to_string()},
+                    {"id":"resource.source","label":"资源来源","kind":"readonly","value_json":config["echolive_resource"]["source"].to_string()},
+                    {"id":"resource.status","label":"任务状态","kind":"readonly","value_json":ctx.resource_task["stage"].to_string(),"tooltip":ctx.resource_task["error"]},
+                    {"id":"resource.progress","label":"任务进度","kind":"readonly","value_json":if ctx.resource_task["total"].as_u64().is_some_and(|total|total>0) {format!("{} / {} 字节",ctx.resource_task["bytes"].as_u64().unwrap_or(0),ctx.resource_task["total"].as_u64().unwrap_or(0))} else {"准备中".into()}},
+                    {"id":"resource.open","label":"打开资源文件夹","kind":"open_path","value_json":config["echolive_resource"]["path"].to_string()},
+                    {"id":"resource.folder","label":"选择资源文件夹","kind":"file_action","schema_json":{"command_id":"resource.folder","dialog":"folder"}},
+                    {"id":"resource.import","label":"导入资源 ZIP","kind":"file_action","schema_json":{"command_id":"resource.import","dialog":"zip"}},
+                    {"id":"resource.download","label":"下载最新资源","kind":"action","command_id":"resource.download","enabled":ctx.resource_task["busy"]!=true,"tooltip":"下载并启用最新 EchoLive 资源"},
+                    {"id":"resource.cancel","label":"取消资源任务","kind":"action","command_id":"resource.cancel","enabled":ctx.resource_task["busy"]==true,"tooltip":"取消当前资源准备任务"}
+                ]}).to_string(),
                 ..Default::default()
             }, proto::UiField {
                 id: "echolive_profiles".into(),
                 label: "EchoLive 配置档案".into(),
-                kind: "echolive_profiles".into(),
+                kind: "profile_collection".into(),
+                schema_json: json!({"config_id":"echolive_config","import_dialog":"json","export_dialog":"save_file"}).to_string(),
                 value_json: config
                     .get("echolive_profiles")
                     .cloned()

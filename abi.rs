@@ -46,7 +46,7 @@ pub(crate) unsafe extern "C" fn invoke(
         if request.protocol_version != PROTOCOL_VERSION
             || !(matches!(
                 request.operation.as_str(),
-                OPERATION | HTTP_OPERATION | "config.changed" | "config.validate"
+                OPERATION | HTTP_OPERATION | "config.changed" | "config.validate" | "ui.command"
             ) || request.operation.starts_with("frontend.ws.")
                 || request.operation.starts_with("echolive.resources."))
         {
@@ -98,6 +98,18 @@ pub(crate) unsafe extern "C" fn invoke(
         }
         if request.operation.starts_with("frontend.ws.") {
             return write_empty_response(write, out);
+        }
+        if request.operation == "ui.command" {
+            return match crate::management::command(ctx, &payload) {
+                Ok(value) => {
+                    let response = proto::PluginResponse {
+                        payload_json: value.to_string().into_bytes(),
+                        ..Default::default()
+                    };
+                    unsafe { vchat_plugin_api::sdk::write_response(&response, write, out) }
+                }
+                Err(error) => write_error(ctx, write, out, "command_failed", &error),
+            };
         }
         if request.operation.starts_with("echolive.resources.") {
             return match crate::resource_management::invoke(ctx, &request.operation, &payload) {
