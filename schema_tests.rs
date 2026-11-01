@@ -25,6 +25,15 @@ fn official_fields_preserve_types_defaults_conditions_and_resource_values() {
     let schema = load_schema(&asset_root()).unwrap();
     let fields = schema["fields"].as_array().unwrap();
     assert!(fields.len() > 100);
+    let group_ids = schema["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| group["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(group_ids.first(), Some(&"global"));
+    assert!(group_ids.contains(&"editor"));
+    assert_eq!(schema["groups"][0]["label"], "全局");
     assert!(fields.iter().all(|f| f["kind"] != "object"));
     assert!(
         !fields

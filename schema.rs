@@ -148,10 +148,24 @@ pub(crate) fn load_schema(root: &Path) -> Result<Value, String> {
         crate::validation::validate_value(&field, default)?;
         fields.push(field);
     }
+    let group_order = [
+        ("global", "全局"),
+        ("echo", "对话显示"),
+        ("character", "角色"),
+        ("editor", "编辑器"),
+        ("accessibility", "无障碍"),
+        ("advanced", "高级"),
+    ];
+    let groups = group_order
+        .into_iter()
+        .filter(|(id, _)| fields.iter().any(|field| field["group"] == *id))
+        .map(|(id, label)| json!({"id":id,"label":label}))
+        .collect::<Vec<_>>();
     Ok(
         json!({"version": 1, "data_version": version, "schema_version": schema_version,
         "effective_version": effective, "read_only": false,
-        "compatibility": crate::versions::compatibility(Some(version), Some(effective)), "fields": fields}),
+        "compatibility": crate::versions::compatibility(Some(version), Some(effective)),
+        "groups": groups, "fields": fields}),
     )
 }
 
