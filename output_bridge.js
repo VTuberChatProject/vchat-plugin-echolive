@@ -21,13 +21,37 @@
     }
     if (card === 'history' && typeof EchoLiveBroadcastHistory !== 'undefined') {
         const receive = EchoLiveBroadcastHistory.prototype.getDataHistory;
+        const echoMessage = message => {
+            const document = message?.document || {};
+            const rows = [];
+            (document.paragraphs || []).forEach((paragraph, paragraphIndex) => {
+                if (paragraphIndex) rows.push({ text: '\n' });
+                (paragraph.segments || []).forEach(segment => {
+                    const value = { ...(segment.extra || {}), text: segment.text || '', style: segment.style || {} };
+                    if (segment.ruby != null) value.ruby = segment.ruby;
+                    if (segment.class != null) value.class = segment.class;
+                    if (segment.speed != null) value.speed = segment.speed;
+                    if (segment.pause != null) value.pause = segment.pause;
+                    if (segment.image) value.data = { ...(value.data || {}), image: {
+                        url: segment.image.source,
+                        size: { width: { value: `${segment.image.width}px` }, height: { value: `${segment.image.height}px` } }
+                    }};
+                    rows.push(value);
+                });
+            });
+            return { username: message?.username || '', messages: [{ message: rows }] };
+        };
         EchoLiveBroadcastHistory.prototype.getDataHistory = function(packet, listener = this) {
-            if (packet.action === 'message_data') {
-                for (const item of packet.data?.messages || []) {
+            if (packet.action === 'vchat_output_message' || packet.action === 'message_data') {
+                const data = packet.action === 'message_data'
+                    ? packet.data || {}
+                    : echoMessage(packet.data?.message);
+                const echo = packet.action === 'message_data' ? data : echoMessage(packet.data?.message);
+                for (const item of echo.messages) {
                     receive.call(this, {
                         action: 'echo_printing',
                         data: {
-                            username: packet.data?.username,
+                            username: echo.username,
                             message: typeof EchoLiveTools !== 'undefined' &&
                                 typeof EchoLiveTools.getMessagePlainText === 'function'
                                 ? EchoLiveTools.getMessagePlainText(item.message)
@@ -120,10 +144,38 @@
     }
 
     const portal = EchoLiveBroadcastPortal.prototype;
+    const echoMessage = message => {
+        const document = message?.document || {};
+        const rows = [];
+        (document.paragraphs || []).forEach((paragraph, paragraphIndex) => {
+            if (paragraphIndex) rows.push({ text: '\n' });
+            (paragraph.segments || []).forEach(segment => {
+                const value = { ...(segment.extra || {}), text: segment.text || '', style: segment.style || {} };
+                if (segment.ruby != null) value.ruby = segment.ruby;
+                if (segment.class != null) value.class = segment.class;
+                if (segment.speed != null) value.speed = segment.speed;
+                if (segment.pause != null) value.pause = segment.pause;
+                if (segment.image) value.data = { ...(value.data || {}), image: {
+                    url: segment.image.source,
+                    size: { width: { value: `${segment.image.width}px` }, height: { value: `${segment.image.height}px` } }
+                }};
+                rows.push(value);
+            });
+        });
+        return { username: message?.username || '', messages: [{ message: rows }] };
+    };
     const receive = portal.getDataPortal;
     portal.getDataPortal = function(packet, listener = this) {
         const live = listener.echolive;
         const value = state(live);
+        if (packet.action === 'vchat_output_message') {
+            const data = packet.data || {};
+            const message = data.message;
+            if (!message || !message.document) return;
+            const echo = echoMessage(message);
+            echo.vchat = data.vchat;
+            packet = { action: 'message_data', data: echo };
+        }
         const meta = packet.data?.vchat;
         if (packet.action === 'vchat_output_clear') {
             if (accept(value, meta)) retire(live, value, true);

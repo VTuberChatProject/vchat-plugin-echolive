@@ -71,6 +71,15 @@ assert.deepEqual(history.messages, [
     { username: '历史角色', message: '第一条' },
     { username: '历史角色', message: '第二条' }
 ]);
+historyBroadcast.getDataHistory({ action: 'vchat_output_message', data: { message: {
+    username: '通用角色', document: { version: 1, paragraphs: [{ segments: [
+        { text: '多段', style: { bold: true }, speed: 12, extra: { extension: '保留' } },
+        { text: '文本', ruby: '注音', pause: 30 },
+    ] }, { segments: [{ text: '图片', image: { source: 'https://example.com/a.png', width: 20, height: 10 } }] }] }
+} } });
+assert.equal(history.messages.at(-1).username, '通用角色');
+assert.ok(history.messages.at(-1).message.includes('多段文本'));
+assert.ok(history.messages.at(-1).message.includes('图片'));
 `, context);
 vm.runInContext(`
 const echo = new Echo();
