@@ -1,0 +1,25 @@
+Cargo.toml
+  s_d37c7a3b39355c::t_b941f25b99203e 11
+src/adapter/output.rs
+  s_d37c7a3b39355c::t_0754e6cc31da08 3
+src/lib.rs
+  s_d37c7a3b39355c::t_b2aeae40a82dd9 2-16
+src/model/versions.rs
+  s_d37c7a3b39355c::t_40502f90263eaa 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3333c102600d9b07f9e76a27227a35dceb2f6c22",
+  "prompts": {},
+  "sessions": {
+    "s_d37c7a3b39355c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19a39-022d-7652-b752-c05c56979a22",
+        "model": "unknown"
+      },
+      "human_author": "AuraElicase <auraelicase@outlook.com>"
+    }
+  }
+}
