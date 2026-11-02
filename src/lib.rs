@@ -1,19 +1,34 @@
 //! Echo-Live 资源、配置适配和 WebSocket 路由内置插件。
-#[path = "adapter/abi.rs"] mod abi;
-#[path = "model/config.rs"] mod config;
-#[path = "application/lifecycle.rs"] mod lifecycle;
-#[path = "application/management.rs"] mod management;
-#[path = "adapter/output.rs"] mod output;
-#[path = "adapter/output_cards.rs"] mod output_cards;
-#[path = "infrastructure/resource_archive.rs"] mod resource_archive;
-#[path = "infrastructure/resource_download.rs"] mod resource_download;
-#[path = "application/resource_jobs.rs"] mod resource_jobs;
-#[path = "application/resource_management.rs"] mod resource_management;
-#[path = "infrastructure/resource_manifest.rs"] mod resource_manifest;
-#[path = "infrastructure/resources.rs"] mod resources;
-#[path = "model/schema.rs"] mod schema;
-#[path = "model/validation.rs"] mod validation;
-#[path = "model/versions.rs"] mod versions;
+#[path = "adapter/abi.rs"]
+mod abi;
+#[path = "model/config.rs"]
+mod config;
+#[path = "application/lifecycle.rs"]
+mod lifecycle;
+#[path = "application/management.rs"]
+mod management;
+#[path = "adapter/output.rs"]
+mod output;
+#[path = "adapter/output_cards.rs"]
+mod output_cards;
+#[path = "infrastructure/resource_archive.rs"]
+mod resource_archive;
+#[path = "infrastructure/resource_download.rs"]
+mod resource_download;
+#[path = "application/resource_jobs.rs"]
+mod resource_jobs;
+#[path = "application/resource_management.rs"]
+mod resource_management;
+#[path = "infrastructure/resource_manifest.rs"]
+mod resource_manifest;
+#[path = "infrastructure/resources.rs"]
+mod resources;
+#[path = "model/schema.rs"]
+mod schema;
+#[path = "model/validation.rs"]
+mod validation;
+#[path = "model/versions.rs"]
+mod versions;
 
 use abi::invoke;
 pub use config::generate_config;

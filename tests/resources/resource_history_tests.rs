@@ -30,7 +30,8 @@ fn write(root: &Path, file: &str, source: &str) {
 
 #[test]
 fn accepts_authentic_historical_pages_and_checks_their_version_specific_dependencies() {
-    let pages: Value = serde_json::from_str(include_str!("../fixtures/resource_history_pages.json")).unwrap();
+    let pages: Value =
+        serde_json::from_str(include_str!("../fixtures/resource_history_pages.json")).unwrap();
     for (index, page) in pages["pages"].as_array().unwrap().iter().enumerate() {
         let fixture: Value = serde_json::from_str(CONFIG_FIXTURES[index]).unwrap();
         assert!(
