@@ -7,7 +7,7 @@ pub(crate) fn root() -> PathBuf {
     ROOT.get_or_init(|| {
         let root = tempfile::tempdir().expect("创建离线资源夹具");
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("version_fixture_17.json")).unwrap();
+            serde_json::from_str(include_str!("../fixtures/version_fixture_17.json")).unwrap();
         for (file, key) in [
             ("config.js", "config"),
             ("res/data/config_define.js", "define"),

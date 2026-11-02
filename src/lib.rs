@@ -55,16 +55,22 @@ pub extern "C" fn vchat_internal_plugin_get_api() -> *const PluginApi {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/tests.rs"]
 mod tests;
 
 #[cfg(test)]
+#[path = "../tests/resources/resource_history_tests.rs"]
 mod resource_history_tests;
 #[cfg(test)]
+#[path = "../tests/resources/resource_tests.rs"]
 mod resource_tests;
 #[cfg(test)]
+#[path = "../tests/unit/schema_tests.rs"]
 mod schema_tests;
 #[cfg(test)]
+#[path = "../tests/unit/versions_tests.rs"]
 mod versions_tests;
 
 #[cfg(test)]
+#[path = "../tests/unit/test_resources.rs"]
 mod test_resources;

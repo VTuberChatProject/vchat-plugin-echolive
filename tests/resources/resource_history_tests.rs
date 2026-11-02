@@ -3,23 +3,23 @@ use serde_json::Value;
 use std::{fs, path::Path};
 
 const CONFIG_FIXTURES: [&str; 17] = [
-    include_str!("version_fixture_01.json"),
-    include_str!("version_fixture_02.json"),
-    include_str!("version_fixture_03.json"),
-    include_str!("version_fixture_04.json"),
-    include_str!("version_fixture_05.json"),
-    include_str!("version_fixture_06.json"),
-    include_str!("version_fixture_07.json"),
-    include_str!("version_fixture_08.json"),
-    include_str!("version_fixture_09.json"),
-    include_str!("version_fixture_10.json"),
-    include_str!("version_fixture_11.json"),
-    include_str!("version_fixture_12.json"),
-    include_str!("version_fixture_13.json"),
-    include_str!("version_fixture_14.json"),
-    include_str!("version_fixture_15.json"),
-    include_str!("version_fixture_16.json"),
-    include_str!("version_fixture_17.json"),
+    include_str!("../fixtures/version_fixture_01.json"),
+    include_str!("../fixtures/version_fixture_02.json"),
+    include_str!("../fixtures/version_fixture_03.json"),
+    include_str!("../fixtures/version_fixture_04.json"),
+    include_str!("../fixtures/version_fixture_05.json"),
+    include_str!("../fixtures/version_fixture_06.json"),
+    include_str!("../fixtures/version_fixture_07.json"),
+    include_str!("../fixtures/version_fixture_08.json"),
+    include_str!("../fixtures/version_fixture_09.json"),
+    include_str!("../fixtures/version_fixture_10.json"),
+    include_str!("../fixtures/version_fixture_11.json"),
+    include_str!("../fixtures/version_fixture_12.json"),
+    include_str!("../fixtures/version_fixture_13.json"),
+    include_str!("../fixtures/version_fixture_14.json"),
+    include_str!("../fixtures/version_fixture_15.json"),
+    include_str!("../fixtures/version_fixture_16.json"),
+    include_str!("../fixtures/version_fixture_17.json"),
 ];
 
 fn write(root: &Path, file: &str, source: &str) {
@@ -30,7 +30,7 @@ fn write(root: &Path, file: &str, source: &str) {
 
 #[test]
 fn accepts_authentic_historical_pages_and_checks_their_version_specific_dependencies() {
-    let pages: Value = serde_json::from_str(include_str!("resource_history_pages.json")).unwrap();
+    let pages: Value = serde_json::from_str(include_str!("../fixtures/resource_history_pages.json")).unwrap();
     for (index, page) in pages["pages"].as_array().unwrap().iter().enumerate() {
         let fixture: Value = serde_json::from_str(CONFIG_FIXTURES[index]).unwrap();
         assert!(
