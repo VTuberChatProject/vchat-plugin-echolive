@@ -1,0 +1,23 @@
+src/lib.rs
+  s_d37c7a3b39355c::t_670f1f546f0564 2-31
+src/model/versions.rs
+  s_d37c7a3b39355c::t_59b6a92dbb6e46 30
+tests/resources/resource_history_tests.rs
+  s_d37c7a3b39355c::t_9d03399d6ff360 33-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6f72a62da14227faaf2a2eaf87df699c70daed31",
+  "prompts": {},
+  "sessions": {
+    "s_d37c7a3b39355c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19a39-022d-7652-b752-c05c56979a22",
+        "model": "unknown"
+      },
+      "human_author": "AuraElicase <auraelicase@outlook.com>"
+    }
+  }
+}
