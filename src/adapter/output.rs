@@ -1,6 +1,6 @@
 //! 在宿主响应中装配剧本输出兼容脚本，保持上游前端资源原样。
 pub(crate) const BRIDGE_PATH: &str = "/Echo-Live/vchat-output.js";
-pub(crate) const BRIDGE: &str = include_str!("output_bridge.js");
+pub(crate) const BRIDGE: &str = include_str!("../../output_bridge.js");
 
 /// 兼容层在 live.js 创建输出实例前按 defer 顺序安装。
 pub(crate) fn inject_html(source: &str) -> Option<String> {

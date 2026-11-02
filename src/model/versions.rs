@@ -26,7 +26,7 @@ pub(crate) fn definition_path(root: &Path, version: u64) -> Option<&'static str>
 
 /// v1 尚未提供定义文件；元数据取自官方 1.2.7 原配置，保留上游字段拼写。
 pub(crate) fn v1_definitions() -> Value {
-    serde_json::from_str::<Value>(include_str!("v1_fields.json"))
+    serde_json::from_str::<Value>(include_str!("../v1_fields.json"))
         .expect("内置 v1 配置元数据")
         ["fields"]
         .clone()
